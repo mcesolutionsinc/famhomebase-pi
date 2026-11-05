@@ -87,8 +87,7 @@ update it with `git pull && docker compose pull && docker compose up -d`.
 ## 4. Set it up from your laptop
 
 > The addresses in this guide use port 80, the default, so they have no port number. If you chose another with `--port`, or set `FAMHOMEBASE_PORT` in
-> `~/famhomebase-pi/.env` (then `docker compose up -d`), add it: `http://<pi-address>:8080/`. An install made before 80 became the default stays on 8080.
-> The kiosk scripts follow the setting.
+> `~/famhomebase-pi/.env` (then `docker compose up -d`), add it: `http://<pi-address>:8080/`. The kiosk scripts follow the setting.
 
 Open `http://<pi-address>/` on a laptop on the same network (find the address with `hostname -I` on the Pi).
 Without `?kiosk=1` you get the full interface: customize the layout, connect calendars, change settings. Changes are

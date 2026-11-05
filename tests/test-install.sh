@@ -36,6 +36,7 @@ for v in 0.1.5 0.1.6; do
   echo "services: {}" > "$pay/docker-compose.yml"; echo "$v" > "$pay/VERSION"
   printf 'FAMHOMEBASE_DIR=/home/pi/famhomebase-pi\nFAMHOMEBASE_PORT=80\nAUTO_UPDATE=true\n' > "$pay/.env.example"
   printf '#!/bin/sh\nmkdir -p secrets && echo KEY > secrets/dashboard.key\n' > "$pay/scripts/generate-key.sh"
+  cp "$HERE/../scripts/fix-autostart.sh" "$pay/scripts/fix-autostart.sh" # the real one: the installer calls it
   d="$FIXTURES/$REPO/releases/download/v$v"; mkdir -p "$d"
   tar -czf "$d/famhomebase-pi-$v.tar.gz" -C "$pay" .
   echo "$(sha256sum "$d/famhomebase-pi-$v.tar.gz" | cut -d' ' -f1)  famhomebase-pi-$v.tar.gz" > "$d/famhomebase-pi-$v.tar.gz.sha256"
@@ -63,7 +64,7 @@ run --dir "$WORK/inst"
 check "re-run upgrades to the latest" '[ "$(cat "$WORK/inst/VERSION")" = 0.1.6 ] && grep -q "Updated 0.1.5 -> 0.1.6" "$WORK/out.log"'
 check "re-run keeps the key, data and .env" '[ "$(cat "$WORK/inst/secrets/dashboard.key")" = MY-KEY ] && [ "$(cat "$WORK/inst/data/config.json")" = KEEP ] && grep -q "AUTO_UPDATE=false" "$WORK/inst/.env"'
 check "re-run adds FAMHOMEBASE_DIR to an old .env that lacked it" 'grep -q "^FAMHOMEBASE_DIR=" "$WORK/inst/.env"'
-check "re-run on an install that never chose a port keeps it on 8080 (it is not moved to the new default)" 'grep -q "^FAMHOMEBASE_PORT=8080\$" "$WORK/inst/.env" && grep -q "Keeping this install on port 8080" "$WORK/out.log" && grep -q "localhost:8080" "$WORK/out.log"'
+check "re-run on an .env with no port setting writes the default (80) — no special case for older installs" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && [ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ] && grep -q "localhost/?kiosk=1" "$WORK/out.log"'
 
 reset; run --dir "$WORK/inst" --no-start
 check "--no-start sets up but starts nothing" '[ -f "$WORK/inst/VERSION" ] && ! grep -q "^compose up" "$WORK/docker.log"'

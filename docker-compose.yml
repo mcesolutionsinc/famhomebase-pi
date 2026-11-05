@@ -14,7 +14,6 @@ services:
     image: ghcr.io/mcesolutionsinc/famhomebase-pi:${FAMHOMEBASE_VERSION:-latest}
     ports:
       # The left-hand number is the port you browse to: 80 (plain http://<address>/) unless FAMHOMEBASE_PORT in .env says otherwise.
-      # Installs made before 80 became the default keep 8080: the installer and updater write that into .env.
       - "${FAMHOMEBASE_PORT:-80}:8080"
     volumes:
       # The Unix socket the app container's web server uses to reach the configstore — not a network port.

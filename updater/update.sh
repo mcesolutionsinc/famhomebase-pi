@@ -127,13 +127,6 @@ apply_update() { # $1 = new version (x.y.z)
   for f in docker-compose.yml VERSION README.md LICENSE; do [ -f "$DIR/$f" ] && cp -f "$DIR/$f" "$rollback/$f"; done
   for d in scripts updater docs; do [ -d "$DIR/$d" ] && cp -r "$DIR/$d" "$rollback/$d"; done
 
-  # Newer releases default to port 80. An install that never chose a port has been on 8080 (the old default), so write that
-  # down before the new compose file arrives — an update must not move the dashboard to a different address.
-  if ! grep -q '^FAMHOMEBASE_PORT=' "$DIR/.env" 2>/dev/null; then
-    echo 'FAMHOMEBASE_PORT=8080' >> "$DIR/.env"
-    log "keeping this install on port 8080 (the port it has been using); set FAMHOMEBASE_PORT in .env to change it"
-  fi
-
   log "installing files for $ver (data, secrets and .env are left alone)"
   restore_from "$stage/new"
   fix_owner
