@@ -1,0 +1,57 @@
+# FamHomeBase on a Raspberry Pi (or any 64-bit Linux box with Docker). See https://github.com/mcesolutionsinc/famhomebase-pi/blob/main/docs/INSTALL.md.
+#
+#   ./scripts/generate-key.sh        # once, before the first start
+#   docker compose up -d
+#   open http://<this-machine>:8080/?kiosk=1      (the display)
+#   open http://<this-machine>:8080/              (manage it from a phone or laptop)
+
+services:
+  app:
+    image: ghcr.io/mcesolutionsinc/famhomebase-pi:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      # The Unix socket the app container's web server uses to reach the configstore — not a network port.
+      - configstore-socket:/run/famhomebase
+    depends_on:
+      configstore:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  configstore:
+    image: ghcr.io/mcesolutionsinc/famhomebase-pi-configstore:latest
+    volumes:
+      - configstore-socket:/run/famhomebase
+      # Your settings and connected-account data live here, on the host. Survives upgrades. Back it up.
+      - ./data:/data
+    secrets:
+      - dashboard_key
+    environment:
+      - CONFIGSTORE_KEY_PATH=/run/secrets/dashboard_key
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').request({socketPath:'/run/famhomebase/configstore.sock',path:'/health'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1)).end()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+secrets:
+  dashboard_key:
+    # Created by ./scripts/generate-key.sh. Encrypts your connected-account tokens on disk.
+    file: ./secrets/dashboard.key
+
+volumes:
+  configstore-socket:
