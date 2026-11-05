@@ -139,8 +139,8 @@ Restart the display after you change something, from SSH:
 
 ```bash
 ~/famhomebase-pi/scripts/refresh-kiosk.sh        # = systemctl --user restart famhomebase-kiosk
-systemctl --user status famhomebase-kiosk         # is it running?
-journalctl --user -u famhomebase-kiosk -n 30      # what did it say?
+systemctl --user status famhomebase-kiosk         # is it running? and what did it last say?
+# (the status output ends with the service's recent log lines)
 ```
 
 ### Rotate the screen

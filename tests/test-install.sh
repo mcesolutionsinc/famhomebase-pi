@@ -88,8 +88,8 @@ check "no reachable user systemd: the install still succeeds, and says how to en
 # an older install opened the dashboard from the labwc autostart: moved to the service automatically
 OLDLINE="sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; exec chromium-browser --kiosk \"http://localhost:8080/?kiosk=1\"' &"
 AS="$WORK/home/.config/labwc/autostart"
-reset; mkdir -p "$WORK/home/.config/labwc"; printf '# my own thing\n%s\nwlr-randr --output HDMI-A-1 --transform 90\n' "$OLDLINE" > "$AS"; run --dir "$WORK/inst"
-check "migration: an old autostart kiosk line is removed, the owner's other lines stay, the old file is kept" '! grep -q "kiosk=1" "$AS" && grep -q "^# my own thing\$" "$AS" && grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$AS" && grep -q "kiosk=1" "$AS.bak"'
+reset; mkdir -p "$WORK/home/.config/labwc"; printf '# my own thing\n%s\n%s\nwlr-randr --output HDMI-A-1 --transform 90\n' "# Wait for the dashboard to be up, then open it full-screen on the Pi's display." "$OLDLINE" > "$AS"; run --dir "$WORK/inst"
+check "migration: an old autostart kiosk line (and the comment this installer wrote above it) is removed, the owner's other lines stay, the old file is kept" '! grep -q "kiosk=1" "$AS" && ! grep -q "Wait for the dashboard" "$AS" && grep -q "^# my own thing\$" "$AS" && grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$AS" && grep -q "kiosk=1" "$AS.bak"'
 check "migration: the service is installed and started, the old browser stopped, and the user is told" '[ -f "$UNIT" ] && grep -q "enable --now famhomebase-kiosk.service" "$WORK/docker.log" && grep -q "^pkill -x chromium" "$WORK/docker.log" && grep -q "Moved the kiosk" "$WORK/out.log"'
 : > "$WORK/docker.log"; run --dir "$WORK/inst"
 check "migration: run again, nothing left to move" '! grep -q "^pkill" "$WORK/docker.log" && ! grep -q "Moved the kiosk" "$WORK/out.log"'

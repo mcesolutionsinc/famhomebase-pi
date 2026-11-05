@@ -158,7 +158,7 @@ UNIT_EOF
 
   if [ "$legacy" -eq 1 ]; then
     cp -f "$autostart" "$autostart.bak"
-    awk '/kiosk=1/ { next } { print }' "$autostart.bak" > "$autostart.new" && cat "$autostart.new" > "$autostart"
+    awk '/kiosk=1/ || /^# Wait for the dashboard to be up, then open it full-screen/ { next } { print }' "$autostart.bak" > "$autostart.new" && cat "$autostart.new" > "$autostart"
     rm -f "$autostart.new"
     say "Moved the kiosk from $autostart to a systemd service (the old file is saved as autostart.bak; your other lines in it stay)."
     pkill -x chromium >/dev/null 2>&1 || true # the old kiosk's browser: the service starts its own
