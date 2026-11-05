@@ -62,6 +62,21 @@ rm ./data/pin.json
 docker compose restart configstore
 ```
 
+**My dashboard went back to the default layout, or an account vanished** — the Pi keeps the last 20 versions of your
+settings in `./data/history/` (oldest name first, newest last) and keeps an account you remove for 7 days in
+`./data/accounts-removed/`. To go back to an earlier layout, stop the service, put that version in place and start it:
+
+```bash
+docker compose stop configstore
+ls ./data/history                                  # pick the newest one from before it went wrong
+cp ./data/history/config-XXXXXXXXXXXXXXX-XXXX.json ./data/config.json
+docker compose start configstore
+```
+
+To bring back a removed account, copy its file back into `./data/accounts/` with the `.<number>` ending taken off
+(`cp ./data/accounts-removed/<name>.<number> ./data/accounts/<name>`), then restart. Reload the page in your browser
+afterwards.
+
 ## Still stuck?
 
 [Open an issue](../../../issues/new/choose) with the output of `docker compose ps` and
