@@ -25,6 +25,8 @@ installer (install guide, section 3) to switch to a release install.
 **A release failed to start and was rolled back** — the log says so, and that version is skipped for a day. Your data was
 never touched. Tell us in an issue with `docker compose logs --tail 100`.
 
+**The kiosk line in my autostart file changed** — the updater (and the installer) keep it current; the previous file is `autostart.bak` next to it. Restart the display with `scripts/refresh-kiosk.sh` or reboot.
+
 **The updater container keeps restarting** — check `FAMHOMEBASE_DIR` in `.env` is the full path of this folder. The installer sets it.
 
 **Turn updates off** — `AUTO_UPDATE=false` in `.env`, then `docker compose up -d`.

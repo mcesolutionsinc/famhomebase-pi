@@ -199,7 +199,9 @@ script above already enables Docker on boot; if you installed it another way, ru
 **Automatic, by default.** The `updater` service checks GitHub for a new release every 6 hours. When there is one it
 downloads it, checks its checksum, pulls the new images, restarts the dashboard, and waits for it to be healthy. If the new
 version doesn't come up, it puts the previous one back and won't retry that version for a day. Your `./data`, `./secrets`
-and `.env` are never touched. The dashboard blinks for about a minute while it restarts, and the first time you open the
+and `.env` are never touched. It also keeps the kiosk line in `~/.config/labwc/autostart` current (the right port, today's
+flags), after each update and whenever the updater starts: if it has to change the file, the old one is saved as
+`autostart.bak` and the log says so. (It assumes the install folder is in your home folder, which is where the installer puts it.) The dashboard blinks for about a minute while it restarts, and the first time you open the
 admin screens afterwards you'll be asked for your PIN again. Reload the Pi's browser to pick up the new page
 (`~/famhomebase-pi/scripts/refresh-kiosk.sh`, or `sudo reboot`) — newer versions of the display reload themselves.
 
