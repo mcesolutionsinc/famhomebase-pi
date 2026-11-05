@@ -43,9 +43,10 @@ On a phone or laptop on the same network, open `http://<pi-address>:8080/` (find
 the Pi). Without `?kiosk=1` you get the full interface: customize the layout, connect calendars, change settings.
 Changes are saved on the Pi, so the display picks them up.
 
-> **Set an admin PIN first** (Settings → Admin Access). Without one, anyone on your network can change your
-> dashboard. The connection is plain HTTP on your home network, so the PIN isn't encrypted in transit — don't reuse
-> one you use elsewhere.
+The first time you open it, it asks you to **set an admin PIN** before showing anything. Without one, anyone on your
+network could change your dashboard. After that, viewing the dashboard needs no PIN, but Customize, Accounts and
+Settings ask for it. The Pi's own screen (`?kiosk=1`) never asks. The connection is plain HTTP on your home
+network, so the PIN isn't encrypted in transit — don't reuse one you use elsewhere.
 
 ## 6. Show it on the Pi's screen
 

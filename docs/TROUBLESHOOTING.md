@@ -14,6 +14,14 @@ Settings → Admin Access and log in; your changes then sync.
 **An account says "Needs reconnect"** — Google revoked or expired the connection. Press Reconnect on the Accounts
 screen and sign in again, leaving every permission box ticked.
 
+**I forgot the admin PIN** — on the Pi, in this folder, delete the PIN file and restart the service. Your layout,
+settings and connected accounts are not touched; you'll be asked to set a new PIN the next time you open the page:
+
+```bash
+rm ./data/pin.json
+docker compose restart configstore
+```
+
 **The display shows the full menu** — the address needs `?kiosk=1`.
 
 Still stuck? [Open an issue](../../../issues/new/choose) with the output of `docker compose ps` and
