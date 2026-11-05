@@ -12,7 +12,7 @@ Docker's own, and the command-line client alone doesn't include the engine.
 **A container says "unhealthy" but the page works** — update to the latest `docker-compose.yml` (`git pull`). Older
 copies checked `localhost`, which can resolve to an address the web server doesn't listen on.
 
-**Port 8080 is already in use** — edit `docker-compose.yml` and change the left-hand number, e.g. `"8081:8080"`.
+**Port 8080 is already in use** — pick another: set `FAMHOMEBASE_PORT=8081` in `~/famhomebase-pi/.env` and run `docker compose up -d` (or re-run the installer with `--port 8081`). The same setting makes it port 80 if you want a plain address and nothing else uses it.
 
 ## Updates
 

@@ -8,6 +8,7 @@
 # Options:
 #   --dir DIR        where to install (default: ~/famhomebase-pi)
 #   --version X.Y.Z  install that release instead of the latest
+#   --port N         the port to browse to (default 8080; 80 gives http://<address>/ — it must be free)
 #   --kiosk          also make this Pi show the dashboard full-screen at boot (Raspberry Pi OS desktop)
 #   --no-start       download and set up, but don't start the containers
 #
@@ -19,6 +20,7 @@ API="${GITHUB_API:-https://api.github.com}"
 DL="${GITHUB_DOWNLOAD:-https://github.com}"
 DIR="${FAMHOMEBASE_DIR:-$HOME/famhomebase-pi}"
 WANT=""
+PORT=""
 START=1
 KIOSK=0
 
@@ -29,6 +31,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dir) [ $# -ge 2 ] || die "--dir needs a folder"; DIR=$2; shift ;;
     --version) [ $# -ge 2 ] || die "--version needs a number like 0.1.5"; WANT=${2#v}; shift ;;
+    --port) [ $# -ge 2 ] && [ -n "$2" ] || die "--port needs a number"; PORT=$2; shift ;;
     --kiosk) KIOSK=1 ;;
     --no-start) START=0 ;;
     -h|--help) sed -n '2,15p' "$0" 2>/dev/null || true; exit 0 ;;
@@ -49,6 +52,9 @@ if [ -z "$WANT" ]; then
   tag=$(curl -fsSL "$API/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1) || true
   [ -n "${tag:-}" ] || die "could not find the latest release of $REPO (offline, or none published yet)"
   WANT=${tag#v}
+fi
+if [ -n "$PORT" ]; then
+  echo "$PORT" | grep -Eq '^[0-9]+$' && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "'$PORT' is not a port number (1-65535)"
 fi
 echo "$WANT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "'$WANT' is not a version like 0.1.5"
 
@@ -76,6 +82,19 @@ elif ! grep -q '^FAMHOMEBASE_DIR=' "$DIR/.env"; then
   printf 'FAMHOMEBASE_DIR=%s\n' "$DIR" >> "$DIR/.env"
 fi
 
+# The port: --port wins; else whatever .env already says (so re-running keeps your choice); else 8080.
+if [ -n "$PORT" ]; then
+  if grep -q '^FAMHOMEBASE_PORT=' "$DIR/.env"; then
+    sed "s|^FAMHOMEBASE_PORT=.*|FAMHOMEBASE_PORT=$PORT|" "$DIR/.env" > "$DIR/.env.new" && mv "$DIR/.env.new" "$DIR/.env"
+  else
+    printf 'FAMHOMEBASE_PORT=%s\n' "$PORT" >> "$DIR/.env"
+  fi
+else
+  PORT=$(sed -n 's/^FAMHOMEBASE_PORT=\([0-9][0-9]*\)$/\1/p' "$DIR/.env" | tail -n 1)
+  PORT=${PORT:-8080}
+fi
+if [ "$PORT" = 80 ]; then BASE_URL="http://<this-machine's address>"; LOCAL_URL="http://localhost"; else BASE_URL="http://<this-machine's address>:$PORT"; LOCAL_URL="http://localhost:$PORT"; fi
+
 if [ ! -f "$DIR/secrets/dashboard.key" ]; then
   say "Creating the encryption key..."
   (cd "$DIR" && sh ./scripts/generate-key.sh)
@@ -99,13 +118,14 @@ if [ "$KIOSK" -eq 1 ]; then
   [ -f "$autostart" ] && cp -f "$autostart" "$autostart.bak"
   cat > "$autostart" <<'KIOSK_EOF'
 # Wait for the dashboard to be up, then open it full-screen on the Pi's display.
-sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost:8080/?kiosk=1"' &
+sh -c 'until curl -sf __URL__/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "__URL__/?kiosk=1"' &
 KIOSK_EOF
+  sed "s|__URL__|$LOCAL_URL|g" "$autostart" > "$autostart.new" && mv "$autostart.new" "$autostart"
   say "  Wrote $autostart (the old one, if any, is saved as autostart.bak). Reboot to start the display."
 fi
 
 say ""
 say "Done. FamHomeBase $WANT is installed in $DIR."
-say "  Set it up from a laptop on the same network:  http://<this-machine's address>:8080/   (find the address with: hostname -I)"
-say "  The Pi's own screen:                            http://localhost:8080/?kiosk=1"
+say "  Set it up from a laptop on the same network:  $BASE_URL/   (find the address with: hostname -I)"
+say "  The Pi's own screen:                            $LOCAL_URL/?kiosk=1"
 say "  It checks for new releases by itself; see docs/INSTALL.md to turn that off."

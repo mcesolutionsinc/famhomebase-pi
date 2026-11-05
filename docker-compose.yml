@@ -2,7 +2,7 @@
 #
 #   ./scripts/generate-key.sh        # once, before the first start
 #   docker compose up -d
-#   open http://<this-machine>:8080/?kiosk=1      (the display)
+#   open http://<this-machine>:8080/?kiosk=1      (the display; 8080 unless you set FAMHOMEBASE_PORT)
 #   open http://<this-machine>:8080/              (manage it from a phone or laptop)
 
 name: famhomebase-pi
@@ -13,7 +13,8 @@ services:
     # git clone follows `latest`. Override with FAMHOMEBASE_VERSION in .env.
     image: ghcr.io/mcesolutionsinc/famhomebase-pi:${FAMHOMEBASE_VERSION:-latest}
     ports:
-      - "8080:8080"
+      # The left-hand number is the port you browse to. Set FAMHOMEBASE_PORT in .env to change it (80 gives http://<address>/).
+      - "${FAMHOMEBASE_PORT:-8080}:8080"
     volumes:
       # The Unix socket the app container's web server uses to reach the configstore — not a network port.
       - configstore-socket:/run/famhomebase

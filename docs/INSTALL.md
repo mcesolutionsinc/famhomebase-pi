@@ -48,7 +48,8 @@ One command downloads the latest release, creates the encryption key, and starts
 curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sh
 ```
 
-It installs into `~/famhomebase-pi`. Options go after `sh -s --`, for example `... | sh -s -- --kiosk` also sets the Pi up to
+It installs into `~/famhomebase-pi`. Options go after `sh -s --`, for example `--port 80` serves it at plain `http://<address>/`
+(the default is port 8080, and the port must be free on this machine), `... | sh -s -- --kiosk` also sets the Pi up to
 show the dashboard full-screen at boot (section 5 does the same by hand), `--dir /some/folder` installs elsewhere, and
 `--version 0.1.5` picks a release. Running it again on an existing install updates it and leaves your settings, accounts
 and key alone.
@@ -82,6 +83,9 @@ update it with `git pull && docker compose pull && docker compose up -d`.
 </details>
 
 ## 4. Set it up from your laptop
+
+> The addresses in this guide use port 8080, the default. If you chose another with `--port`, or set `FAMHOMEBASE_PORT` in `~/famhomebase-pi/.env`
+> (then `docker compose up -d`), use yours instead; for port 80 leave the `:8080` off. The kiosk scripts follow the setting.
 
 Open `http://<pi-address>:8080/` on a laptop on the same network (find the address with `hostname -I` on the Pi).
 Without `?kiosk=1` you get the full interface: customize the layout, connect calendars, change settings. Changes are

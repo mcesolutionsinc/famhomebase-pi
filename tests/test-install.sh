@@ -88,5 +88,35 @@ check "no compose plugin: says so before downloading anything" '[ $rc -ne 0 ] &&
 reset; run --bogus; rc=$?
 check "unknown option is an error" '[ $rc -ne 0 ] && grep -q "unknown option" "$WORK/out.log"'
 
+# ---- the port
+reset; run --dir "$WORK/inst" --port 80
+check "--port 80: written to .env, and the URLs have no port" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && grep -q "http://localhost/?kiosk=1" "$WORK/out.log" && ! grep -q ":8080" "$WORK/out.log"'
+reset; run --dir "$WORK/inst" --port 8081 --kiosk
+check "--port 8081 --kiosk: the autostart opens that port (and waits on it)" 'grep -q "localhost:8081/?kiosk=1" "$WORK/home/.config/labwc/autostart" && grep -q "curl -sf http://localhost:8081/" "$WORK/home/.config/labwc/autostart" && ! grep -q "__URL__\|8080" "$WORK/home/.config/labwc/autostart"'
+reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst"
+check "re-running without --port keeps the port you chose" 'grep -q "^FAMHOMEBASE_PORT=9090\$" "$WORK/inst/.env" && grep -q "localhost:9090" "$WORK/out.log"'
+reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst" --port 80
+check "--port changes an existing choice, once (no duplicate line)" '[ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ] && grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env"'
+reset; run --dir "$WORK/inst"
+check "no --port: 8080, as before" 'grep -q "localhost:8080/?kiosk=1" "$WORK/out.log"'
+for bad in abc 0 70000 -1 ""; do
+  reset; run --dir "$WORK/inst" --port "$bad"; rc=$?
+  check "--port '$bad' is refused before anything is downloaded" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ]'
+done
+
+# ---- refresh-kiosk.sh follows the port in .env
+rk="$WORK/rk"; rm -rf "$rk"; mkdir -p "$rk/scripts" "$rk/bin"; cp "$HERE/../scripts/refresh-kiosk.sh" "$rk/scripts/"
+for s in pkill sleep id; do printf '#!/bin/sh\nexit 0\n' > "$rk/bin/$s"; done
+printf '#!/bin/sh\necho 1000\n' > "$rk/bin/id"
+printf '#!/bin/sh\nexec "$@"\n' > "$rk/bin/nohup"
+printf '#!/bin/sh\necho "$*" > "$RK_OUT"\n' > "$rk/bin/chromium"
+chmod +x "$rk/bin/"*
+refresh() { rm -f "$WORK/rk.out"; env PATH="$rk/bin:$PATH" RK_OUT="$WORK/rk.out" sh "$rk/scripts/refresh-kiosk.sh"; i=0; while [ ! -s "$WORK/rk.out" ] && [ $i -lt 20 ]; do i=$((i+1)); sleep 0.1; done; }
+printf 'FAMHOMEBASE_PORT=80\nAUTO_UPDATE=true\n' > "$rk/.env"; refresh
+check "refresh-kiosk.sh opens the port from .env" 'grep -q "http://localhost:80/?kiosk=1" "$WORK/rk.out"'
+rm -f "$rk/.env"; refresh
+check "refresh-kiosk.sh defaults to 8080 with no .env" 'grep -q "http://localhost:8080/?kiosk=1" "$WORK/rk.out"'
+check "refresh-kiosk.sh keeps the Wayland and keyring flags" 'grep -q "ozone-platform=wayland" "$WORK/rk.out" && grep -q "password-store=basic" "$WORK/rk.out"'
+
 echo; echo "$n checks, $fail failed"
 [ "$fail" -eq 0 ]
