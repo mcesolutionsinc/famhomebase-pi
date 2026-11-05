@@ -18,7 +18,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      # 127.0.0.1, not localhost: in the Alpine nginx image localhost can resolve to ::1 first, nginx listens on IPv4
+      # only, and busybox wget doesn't fall back — so the container reported unhealthy while serving fine.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
       interval: 30s
       timeout: 5s
       retries: 3
