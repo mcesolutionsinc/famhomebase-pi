@@ -1,0 +1,71 @@
+name: Release
+
+# Runs when a vX.Y.Z tag lands on this repo. The app repo's release workflow creates that tag right after it has pushed
+# the images for the same version, so by the time this runs the images exist. It builds the downloadable payload:
+#   famhomebase-pi-X.Y.Z.tar.gz        the compose file (images pinned to X.Y.Z), scripts, updater and docs
+#   famhomebase-pi-X.Y.Z.tar.gz.sha256 its checksum (the installer and the updater both verify it)
+#   install.sh                         the one-command installer, at .../releases/latest/download/install.sh
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the scripts that ship
+        run: |
+          sh tests/test-updater.sh
+          sh tests/test-install.sh
+
+      - name: Check the images this release pins exist
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for image in famhomebase-pi famhomebase-pi-configstore; do
+            token=$(curl -fsS "https://ghcr.io/token?scope=repository:mcesolutionsinc/$image:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+              -H "Accept: application/vnd.oci.image.index.v1+json" \
+              "https://ghcr.io/v2/mcesolutionsinc/$image/manifests/$version")
+            if [ "$code" != 200 ]; then
+              echo "::error::$image:$version is not publicly pullable (HTTP $code) — a release that pins it would not start. Is the app release finished, and is the package public?"
+              exit 1
+            fi
+          done
+
+      - name: Build the payload
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          name="famhomebase-pi-$version"
+          stage=$(mktemp -d)
+          cp -r docker-compose.yml README.md LICENSE .env.example scripts updater docs "$stage"/
+          # The compose file in the repo follows `latest`; a release pins the images built for it.
+          sed -i "s/\${FAMHOMEBASE_VERSION:-latest}/\${FAMHOMEBASE_VERSION:-$version}/g" "$stage/docker-compose.yml"
+          [ "$(grep -c "FAMHOMEBASE_VERSION:-$version}" "$stage/docker-compose.yml")" = 2 ] || { echo "::error::expected both images to be pinned to $version"; exit 1; }
+          echo "$version" > "$stage/VERSION"
+          mkdir dist
+          tar -czf "dist/$name.tar.gz" -C "$stage" .
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          cp scripts/install.sh dist/install.sh
+          ls -l dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "FamHomeBase for Raspberry Pi $version" \
+            --generate-notes \
+            --notes "Install or upgrade with one command:
+
+          \`\`\`
+          curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | sh
+          \`\`\`
+
+          Installs already running the updater pick this release up by themselves."

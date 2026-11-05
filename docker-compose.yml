@@ -5,9 +5,13 @@
 #   open http://<this-machine>:8080/?kiosk=1      (the display)
 #   open http://<this-machine>:8080/              (manage it from a phone or laptop)
 
+name: famhomebase-pi
+
 services:
   app:
-    image: ghcr.io/mcesolutionsinc/famhomebase-pi:latest
+    # A release install pins this to the release's own version (the payload's compose file has it stamped in); a plain
+    # git clone follows `latest`. Override with FAMHOMEBASE_VERSION in .env.
+    image: ghcr.io/mcesolutionsinc/famhomebase-pi:${FAMHOMEBASE_VERSION:-latest}
     ports:
       - "8080:8080"
     volumes:
@@ -27,7 +31,7 @@ services:
       start_period: 10s
 
   configstore:
-    image: ghcr.io/mcesolutionsinc/famhomebase-pi-configstore:latest
+    image: ghcr.io/mcesolutionsinc/famhomebase-pi-configstore:${FAMHOMEBASE_VERSION:-latest}
     volumes:
       - configstore-socket:/run/famhomebase
       # Your settings and connected-account data live here, on the host. Survives upgrades. Back it up.
@@ -49,6 +53,26 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # Keeps this install up to date: every few hours it checks GitHub for a newer release of famhomebase-pi and, if there
+  # is one, installs it (pull, restart, health check, roll back if it doesn't come up). Turn it off with AUTO_UPDATE=false
+  # in .env — it will then only log that a release is available. See docs/INSTALL.md ("Updating").
+  #
+  # It needs the Docker socket, which is effectively root on this machine: that is how any compose-based updater works.
+  # The install folder is mounted at the same path inside and out so the relative paths in this file resolve the same
+  # way for the updater's `docker compose` as for yours.
+  updater:
+    image: docker:27-cli
+    restart: unless-stopped
+    working_dir: ${FAMHOMEBASE_DIR:-${PWD}}
+    entrypoint: ["sh", "./updater/update.sh"]
+    environment:
+      - FAMHOMEBASE_DIR=${FAMHOMEBASE_DIR:-${PWD}}
+      - AUTO_UPDATE=${AUTO_UPDATE:-true}
+      - CHECK_INTERVAL_HOURS=${CHECK_INTERVAL_HOURS:-6}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${FAMHOMEBASE_DIR:-${PWD}}:${FAMHOMEBASE_DIR:-${PWD}}
 
 secrets:
   dashboard_key:

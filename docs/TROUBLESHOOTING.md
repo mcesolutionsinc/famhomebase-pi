@@ -14,6 +14,21 @@ copies checked `localhost`, which can resolve to an address the web server doesn
 
 **Port 8080 is already in use** — edit `docker-compose.yml` and change the left-hand number, e.g. `"8081:8080"`.
 
+## Updates
+
+**Did it update?** `cat ~/famhomebase-pi/VERSION` is the release you're on; `docker compose logs updater --tail 20` says what the
+updater last did. It checks every 6 hours and waits 5 minutes after starting.
+
+**"development checkout ... not updating"** — you installed with `git clone`, which the updater leaves alone. Use the
+installer (install guide, section 3) to switch to a release install.
+
+**A release failed to start and was rolled back** — the log says so, and that version is skipped for a day. Your data was
+never touched. Tell us in an issue with `docker compose logs --tail 100`.
+
+**The updater container keeps restarting** — check `FAMHOMEBASE_DIR` in `.env` is the full path of this folder. The installer sets it.
+
+**Turn updates off** — `AUTO_UPDATE=false` in `.env`, then `docker compose up -d`.
+
 ## The Pi's screen
 
 **Nothing appears on the screen after boot** — `which chromium chromium-browser`: the browser is `chromium` on current

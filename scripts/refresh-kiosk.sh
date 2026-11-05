@@ -1,0 +1,8 @@
+#!/bin/sh
+# Restart the Pi's full-screen browser (e.g. after you change something from your laptop). Run it over SSH.
+pkill chromium
+sleep 2
+XDG_RUNTIME_DIR=/run/user/$(id -u)
+WAYLAND_DISPLAY=wayland-0
+export XDG_RUNTIME_DIR WAYLAND_DISPLAY
+nohup chromium --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost:8080/?kiosk=1" >/dev/null 2>&1 &

@@ -1,2 +1,7 @@
 secrets/
 data/
+.env
+.rollback/
+.update-failed
+.last-update
+.update-available

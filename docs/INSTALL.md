@@ -40,35 +40,48 @@ docker run --rm hello-world
 >
 > Having `/usr/bin/docker` is not enough: a command-line client without the engine gives you no `docker.service`.
 
-## 3. Get the files
+## 3. Install FamHomeBase
+
+One command downloads the latest release, creates the encryption key, and starts everything:
 
 ```bash
-git clone https://github.com/mcesolutionsinc/famhomebase-pi.git
-cd famhomebase-pi
+curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sh
 ```
 
-## 4. Create the encryption key
+It installs into `~/famhomebase-pi`. Options go after `sh -s --`, for example `... | sh -s -- --kiosk` also sets the Pi up to
+show the dashboard full-screen at boot (section 5 does the same by hand), `--dir /some/folder` installs elsewhere, and
+`--version 0.1.5` picks a release. Running it again on an existing install updates it and leaves your settings, accounts
+and key alone.
+
+> **Back up `~/famhomebase-pi/secrets/dashboard.key`, separately from `./data`.** It encrypts your connected-account
+> tokens. If you lose it you keep your layout and settings but have to reconnect your calendars.
+
+Check it's healthy (about 30 seconds after the first start):
 
 ```bash
-./scripts/generate-key.sh
-```
-
-This creates `./secrets/dashboard.key`, which encrypts your connected-account tokens on disk.
-
-> **Back this key up, separately from `./data`.** If you lose it you keep your layout and settings but have to
-> reconnect your calendars. The script refuses to overwrite an existing key on purpose.
-
-## 5. Start it
-
-```bash
-docker compose up -d
-docker compose ps          # both services should say "healthy" after about 30 seconds
+cd ~/famhomebase-pi
+docker compose ps          # app, configstore and updater should be running; the first two "healthy"
 docker compose logs -f
 ```
 
 The first start downloads two images: the app and a small background service that stores your settings.
 
-## 6. Set it up from your laptop
+<details>
+<summary>Installing by hand instead (a git clone)</summary>
+
+```bash
+git clone https://github.com/mcesolutionsinc/famhomebase-pi.git
+cd famhomebase-pi
+./scripts/generate-key.sh
+docker compose up -d
+```
+
+A clone follows the newest images (`latest`) but is a development checkout: it does **not** update itself, and you
+update it with `git pull && docker compose pull && docker compose up -d`.
+
+</details>
+
+## 4. Set it up from your laptop
 
 Open `http://<pi-address>:8080/` on a laptop on the same network (find the address with `hostname -I` on the Pi).
 Without `?kiosk=1` you get the full interface: customize the layout, connect calendars, change settings. Changes are
@@ -100,7 +113,7 @@ Leave that open, then browse to **`http://localhost:8080/`** on the laptop → A
 every permission box ticked. If your laptop already uses port 8080, use another local port, e.g.
 `ssh -L 9090:localhost:8080 …` and `http://localhost:9090/`. You only need the tunnel while connecting an account.
 
-## 7. Show it on the Pi's screen
+## 5. Show it on the Pi's screen
 
 The display is the same page with `?kiosk=1`, which hides the menu and the mouse pointer. First check what the browser
 is called on your system:
@@ -170,23 +183,35 @@ sed -i '1i wlr-randr --output HDMI-A-1 --transform 90' ~/.config/labwc/autostart
 
 Then set the screen's orientation in the dashboard under Settings. A touchscreen may need its own rotation.
 
-## 8. Start on boot
+## 6. Start on boot
 
 The containers use `restart: unless-stopped`, so they return after a reboot as long as Docker does. The install
 script above already enables Docker on boot; if you installed it another way, run `sudo systemctl enable docker`.
 
 ## Updating
 
+**Automatic, by default.** The `updater` service checks GitHub for a new release every 6 hours. When there is one it
+downloads it, checks its checksum, pulls the new images, restarts the dashboard, and waits for it to be healthy. If the new
+version doesn't come up, it puts the previous one back and won't retry that version for a day. Your `./data`, `./secrets`
+and `.env` are never touched. The dashboard blinks for about a minute while it restarts, and the first time you open the
+admin screens afterwards you'll be asked for your PIN again. Reload the Pi's browser to pick up the new page
+(`~/famhomebase-pi/scripts/refresh-kiosk.sh`, or `sudo reboot`) — newer versions of the display reload themselves.
+
+See what it's doing:
+
 ```bash
 cd ~/famhomebase-pi
-git pull
-docker compose pull
-docker compose up -d
+docker compose logs updater --tail 20
+cat VERSION                 # the release you're on
 ```
 
-Your settings live in `./data` and are never touched by an update. Updating restarts the background service, which
-ends everyone's login: you'll be asked for the PIN once on the admin screens. Reload the Pi's browser afterwards
-(`sudo reboot` is the easy way when you have no keyboard).
+**Turn it off.** Set `AUTO_UPDATE=false` in `~/famhomebase-pi/.env` and run `docker compose up -d`. The updater then only logs that
+a release is available (and writes its number to `.update-available`).
+
+**Update by hand** at any time by running the installer again (section 3).
+
+The updater needs access to Docker's control socket, which is effectively root on this machine; that is how any
+compose-based updater works. If you'd rather not have that, turn it off and update by hand.
 
 ## Backups
 
