@@ -138,7 +138,7 @@ dashboard from `~/.config/labwc/autostart` is moved over to the service automati
 Restart the display after you change something, from SSH:
 
 ```bash
-~/famhomebase-pi/scripts/refresh-kiosk.sh        # = systemctl --user restart famhomebase-kiosk
+systemctl --user restart famhomebase-kiosk        # restart the display
 systemctl --user status famhomebase-kiosk         # is it running? and what did it last say?
 # (the status output ends with the service's recent log lines)
 ```
@@ -152,7 +152,7 @@ curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/dow
 ```
 
 or edit `~/famhomebase-pi/.env` yourself (`FAMHOMEBASE_ROTATE=90`, and `FAMHOMEBASE_OUTPUT=HDMI-A-1` if you have more than one
-display) and run `refresh-kiosk.sh`. It needs `wlr-randr` (`sudo apt install wlr-randr`). `--rotate normal` puts it back. Then
+display) and run `systemctl --user restart famhomebase-kiosk`. It needs `wlr-randr` (`sudo apt install wlr-randr`). `--rotate normal` puts it back. Then
 set the screen's orientation in the dashboard under Settings. A touchscreen may need its own rotation.
 
 <details>
@@ -191,7 +191,7 @@ downloads it, checks its checksum, pulls the new images, restarts the dashboard,
 version doesn't come up, it puts the previous one back and won't retry that version for a day. Your `./data`, `./secrets`
 and `.env` are never touched. The dashboard blinks for about a minute while it restarts, and the first time you open the
 admin screens afterwards you'll be asked for your PIN again. Reload the Pi's browser to pick up the new page
-(`~/famhomebase-pi/scripts/refresh-kiosk.sh`, or `sudo reboot`) — newer versions of the display reload themselves.
+(`systemctl --user restart famhomebase-kiosk`, or `sudo reboot`) — newer versions of the display reload themselves.
 
 See what it's doing:
 

@@ -167,7 +167,7 @@ UNIT_EOF
   XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
   export XDG_RUNTIME_DIR
   if systemctl --user daemon-reload >/dev/null 2>&1; then
-    if [ "$START" -eq 1 ]; then systemctl --user enable --now famhomebase-kiosk.service >/dev/null 2>&1 && say "  The kiosk service is running; restart it any time with $DIR/scripts/refresh-kiosk.sh."
+    if [ "$START" -eq 1 ]; then systemctl --user enable --now famhomebase-kiosk.service >/dev/null 2>&1 && say "  The kiosk service is running; restart it any time with: systemctl --user restart famhomebase-kiosk"
     else systemctl --user enable famhomebase-kiosk.service >/dev/null 2>&1; fi
   else
     say "  Could not reach your user's systemd (normal when run from a session with no desktop login yet). It starts at the next login; or run: systemctl --user enable --now famhomebase-kiosk.service"

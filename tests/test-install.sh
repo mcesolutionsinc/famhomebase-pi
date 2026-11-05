@@ -137,14 +137,5 @@ for bad in abc 0 70000 -1 ""; do
   check "--port '$bad' is refused before anything is downloaded" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ]'
 done
 
-# ---- refresh-kiosk.sh restarts the service
-rk="$WORK/rk"; rm -rf "$rk"; mkdir -p "$rk/bin"
-printf '#!/bin/sh\necho "systemctl $*" >> "$RK_LOG"\n[ "$2" = cat ] && [ -n "${RK_NO_UNIT:-}" ] && exit 1\nexit 0\n' > "$rk/bin/systemctl"
-chmod +x "$rk/bin/systemctl"
-: > "$WORK/rk.log"; env PATH="$rk/bin:$PATH" RK_LOG="$WORK/rk.log" sh "$HERE/../scripts/refresh-kiosk.sh"
-check "refresh-kiosk.sh restarts the kiosk service" 'grep -q "^systemctl --user restart famhomebase-kiosk.service" "$WORK/rk.log"'
-: > "$WORK/rk.log"; env PATH="$rk/bin:$PATH" RK_LOG="$WORK/rk.log" RK_NO_UNIT=1 sh "$HERE/../scripts/refresh-kiosk.sh" 2>"$WORK/rk.err"; rc=$?
-check "refresh-kiosk.sh with no service installed says how to install it, and fails" '[ $rc -ne 0 ] && grep -q "kiosk service isn.t installed" "$WORK/rk.err" && ! grep -q "restart" "$WORK/rk.log"'
-
 echo; echo "$n checks, $fail failed"
 [ "$fail" -eq 0 ]

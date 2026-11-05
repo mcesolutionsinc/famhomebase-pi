@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint the shell scripts
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/generate-key.sh scripts/refresh-kiosk.sh updater/update.sh
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/generate-key.sh updater/update.sh
       - name: Test the updater
         run: sh tests/test-updater.sh
       - name: Test the installer

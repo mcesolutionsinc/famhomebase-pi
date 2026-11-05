@@ -33,7 +33,7 @@ never touched. Tell us in an issue with `docker compose logs --tail 100`.
 
 **Nothing appears on the screen after boot** — check the service: `systemctl --user status famhomebase-kiosk` (it ends with the service's recent log lines). It waits up to 5 minutes for the desktop to come up and then tries again. If it isn't installed, run the installer with `--kiosk`. Check desktop autologin is on (`sudo raspi-config nonint do_boot_behaviour B4`).
 
-**The screen is the wrong way up, or won't rotate** — set `FAMHOMEBASE_ROTATE` in `.env` (90, 180 or 270) and run `scripts/refresh-kiosk.sh`; it needs `sudo apt install wlr-randr`. `systemctl --user status famhomebase-kiosk` says if the rotation failed.
+**The screen is the wrong way up, or won't rotate** — set `FAMHOMEBASE_ROTATE` in `.env` (90, 180 or 270) and run `systemctl --user restart famhomebase-kiosk`; it needs `sudo apt install wlr-randr`. `systemctl --user status famhomebase-kiosk` says if the rotation failed.
 
 **The display shows the full menu** — the address needs `?kiosk=1`.
 
