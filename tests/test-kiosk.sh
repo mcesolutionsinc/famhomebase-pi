@@ -9,7 +9,9 @@ check() { if eval "$2"; then ok "$1"; else bad "$1  [$2]"; fi; }
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 T="$WORK/inst"; BIN="$WORK/bin"; RT="$WORK/run"
-mkdir -p "$T/scripts" "$BIN" "$RT"
+mkdir -p "$T/scripts" "$BIN" "$RT" "$WORK/tools"
+# Only the system tools the script really needs, so a chromium or wlr-randr that happens to be installed on this machine can't leak in.
+for tool in sed tail awk dirname; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
 cp "$HERE/../scripts/kiosk.sh" "$T/scripts/kiosk.sh"
 LOG="$WORK/log"
 
@@ -22,7 +24,7 @@ stub wlr-randr 'if [ $# -eq 0 ]; then echo "HDMI-A-1 \"Some Monitor\""; echo "  
 
 run() { # extra env as args; returns the script's exit status
   : > "$LOG"
-  env PATH="$BIN:/usr/bin:/bin" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" "$@" sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1
+  env PATH="$BIN:$WORK/tools" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" "$@" /bin/sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1
 }
 touch "$RT/wayland-0" # the desktop is up
 
