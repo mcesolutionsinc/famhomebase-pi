@@ -50,15 +50,33 @@ network, so the PIN isn't encrypted in transit — don't reuse one you use elsew
 
 ## 6. Show it on the Pi's screen
 
-The display is the same page with `?kiosk=1`, which hides the menu:
+The display is the same page with `?kiosk=1`, which hides the menu. First check the browser's name on your system:
 
 ```bash
-chromium-browser --kiosk --noerrdialogs --disable-infobars "http://localhost:8080/?kiosk=1"
+which chromium chromium-browser
 ```
 
-To start it automatically at login, add that command to your desktop session's autostart. Where that lives depends
-on your OS version — on current Raspberry Pi OS it is typically `~/.config/labwc/autostart` (Wayland) or
-`~/.config/lxsession/LXDE-pi/autostart` (older X11 installs).
+On Raspberry Pi OS based on Debian 13 ("trixie") the command is `chromium`; older releases use `chromium-browser`. Try it once by hand from a terminal **on the Pi's desktop**:
+
+```bash
+chromium --kiosk --noerrdialogs --disable-infobars --no-first-run "http://localhost:8080/?kiosk=1"
+```
+
+(Close it with Alt+F4.) To start it automatically at login:
+
+1. Make the Pi log into the desktop by itself: `sudo raspi-config` → System Options → Boot / Auto Login → **Desktop Autologin**. Without a desktop session nothing autostarts.
+2. On current Raspberry Pi OS the desktop is `labwc` (Wayland). Create `~/.config/labwc/autostart`:
+
+   ```bash
+   mkdir -p ~/.config/labwc
+   cat > ~/.config/labwc/autostart <<'EOF'
+   # Wait for the dashboard to be up, then open it full-screen on the Pi's display.
+   sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --kiosk --noerrdialogs --disable-infobars --no-first-run "http://localhost:8080/?kiosk=1"' &
+   EOF
+   ```
+
+   The wait matters: without it the browser can start before Docker has the dashboard up and land on an error page. A command that fails in this file fails silently, which is why testing it by hand first is worth the minute. Older X11-based installs use `~/.config/lxsession/LXDE-pi/autostart` instead.
+3. Log out and back in, or reboot.
 
 ## 7. Start on boot
 

@@ -22,6 +22,8 @@ rm ./data/pin.json
 docker compose restart configstore
 ```
 
+**The display doesn't start on boot** — run `which chromium chromium-browser`: the browser is `chromium` on current Raspberry Pi OS, not `chromium-browser`, and a wrong name in the autostart file fails silently. Also check Desktop Autologin is on (`sudo raspi-config` → System Options → Boot / Auto Login) and see step 6 of the install guide.
+
 **The display shows the full menu** — the address needs `?kiosk=1`.
 
 Still stuck? [Open an issue](../../../issues/new/choose) with the output of `docker compose ps` and
