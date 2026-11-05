@@ -25,22 +25,15 @@ installer (install guide, section 3) to switch to a release install.
 **A release failed to start and was rolled back** — the log says so, and that version is skipped for a day. Your data was
 never touched. Tell us in an issue with `docker compose logs --tail 100`.
 
-**The kiosk line in my autostart file changed** — the updater (and the installer) keep it current; the previous file is `autostart.bak` next to it. Restart the display with `scripts/refresh-kiosk.sh` or reboot.
-
 **The updater container keeps restarting** — check `FAMHOMEBASE_DIR` in `.env` is the full path of this folder. The installer sets it.
 
 **Turn updates off** — `AUTO_UPDATE=false` in `.env`, then `docker compose up -d`.
 
 ## The Pi's screen
 
-**Nothing appears on the screen after boot** — `which chromium chromium-browser`: the browser is `chromium` on current
-Raspberry Pi OS, and a wrong name in the autostart file fails silently. Check desktop autologin is on
-(`sudo raspi-config nonint do_boot_behaviour B4`), then follow step 7 of the install guide, including the
-by-hand test.
+**Nothing appears on the screen after boot** — check the service: `systemctl --user status famhomebase-kiosk` and `journalctl --user -u famhomebase-kiosk -n 30`. It waits up to 5 minutes for the desktop to come up and then tries again. If it isn't installed, run the installer with `--kiosk`. Check desktop autologin is on (`sudo raspi-config nonint do_boot_behaviour B4`).
 
-**`Missing X server or $DISPLAY`** when starting Chromium from SSH — add `--ozone-platform=wayland`.
-
-**Chromium asks about a keyring** — add `--password-store=basic` to its command.
+**The screen is the wrong way up, or won't rotate** — set `FAMHOMEBASE_ROTATE` in `.env` (90, 180 or 270) and run `scripts/refresh-kiosk.sh`; it needs `sudo apt install wlr-randr`. `journalctl --user -u famhomebase-kiosk` says if the rotation failed.
 
 **The display shows the full menu** — the address needs `?kiosk=1`.
 

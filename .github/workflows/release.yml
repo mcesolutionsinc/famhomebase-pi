@@ -22,7 +22,7 @@ jobs:
         run: |
           sh tests/test-updater.sh
           sh tests/test-install.sh
-          sh tests/test-autostart.sh
+          sh tests/test-kiosk.sh
 
       - name: Check the images this release pins exist
         run: |

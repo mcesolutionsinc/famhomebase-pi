@@ -11,13 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint the shell scripts
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/fix-autostart.sh scripts/generate-key.sh scripts/refresh-kiosk.sh updater/update.sh
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/generate-key.sh scripts/refresh-kiosk.sh updater/update.sh
       - name: Test the updater
         run: sh tests/test-updater.sh
       - name: Test the installer
         run: sh tests/test-install.sh
-      - name: Test the autostart fixer
-        run: sh tests/test-autostart.sh
+      - name: Test the kiosk launcher
+        run: sh tests/test-kiosk.sh
       - name: The compose file parses
         run: docker compose -f docker-compose.yml config > /dev/null
         env:

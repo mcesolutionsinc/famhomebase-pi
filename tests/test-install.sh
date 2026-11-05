@@ -28,6 +28,8 @@ exit 0
 STUB
 printf '#!/bin/sh\necho "raspi-config $*" >> "$DOCKER_LOG"\n' > "$WORK/bin/raspi-config"
 printf '#!/bin/sh\nexec "$@"\n' > "$WORK/bin/sudo"
+printf '#!/bin/sh\necho "systemctl $*" >> "$DOCKER_LOG"\n[ -n "${NO_SYSTEMD:-}" ] && [ "$2" = daemon-reload ] && exit 1\nexit 0\n' > "$WORK/bin/systemctl"
+printf '#!/bin/sh\necho "pkill $*" >> "$DOCKER_LOG"\n' > "$WORK/bin/pkill"
 chmod +x "$WORK/bin/"*
 
 pay="$WORK/pay"; mkdir -p "$pay/scripts"
@@ -69,13 +71,44 @@ check "re-run on an .env with no port setting writes the default (80) — no spe
 reset; run --dir "$WORK/inst" --no-start
 check "--no-start sets up but starts nothing" '[ -f "$WORK/inst/VERSION" ] && ! grep -q "^compose up" "$WORK/docker.log"'
 
+UNIT="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
 reset; run --dir "$WORK/inst" --kiosk
-check "--kiosk writes the labwc autostart (chromium, wayland, keyring flag, waits for the dashboard)" 'grep -q "ozone-platform=wayland" "$WORK/home/.config/labwc/autostart" && grep -q "password-store=basic" "$WORK/home/.config/labwc/autostart" && grep -q "until curl" "$WORK/home/.config/labwc/autostart"'
+check "--kiosk installs a systemd user service that runs the kiosk script from the install folder" '[ -f "$UNIT" ] && grep -q "^ExecStart=$WORK/inst/scripts/kiosk.sh\$" "$UNIT" && grep -q "^Restart=always\$" "$UNIT" && grep -q "^WantedBy=default.target\$" "$UNIT"'
+check "--kiosk: the service itself knows nothing about the port or rotation (the script reads .env)" '! grep -qi "port\|rotate\|8080\|kiosk=1" "$UNIT"'
+check "--kiosk reloads systemd and enables and starts the service" 'grep -q "^systemctl --user daemon-reload" "$WORK/docker.log" && grep -q "^systemctl --user enable --now famhomebase-kiosk.service" "$WORK/docker.log"'
 check "--kiosk turns on desktop autologin" 'grep -q "raspi-config nonint do_boot_behaviour B4" "$WORK/docker.log"'
-reset; mkdir -p "$WORK/home/.config/labwc"; echo "my old autostart" > "$WORK/home/.config/labwc/autostart"; run --dir "$WORK/inst" --kiosk
-check "--kiosk keeps a copy of an existing autostart, and keeps its other lines" '[ "$(cat "$WORK/home/.config/labwc/autostart.bak")" = "my old autostart" ] && grep -q "my old autostart" "$WORK/home/.config/labwc/autostart" && grep -q "kiosk=1" "$WORK/home/.config/labwc/autostart"'
+check "--kiosk writes no labwc autostart file" '[ ! -e "$WORK/home/.config/labwc/autostart" ]'
+reset; run --dir "$WORK/inst" --kiosk --no-start
+check "--kiosk --no-start enables the service but does not start it" 'grep -q "^systemctl --user enable famhomebase-kiosk.service" "$WORK/docker.log" && ! grep -q "enable --now" "$WORK/docker.log"'
 reset; run --dir "$WORK/inst"
-check "no --kiosk: leaves the desktop alone" '[ ! -e "$WORK/home/.config/labwc/autostart" ] && ! grep -q raspi-config "$WORK/docker.log"'
+check "no --kiosk and no old autostart line: the desktop and systemd are left alone" '[ ! -e "$UNIT" ] && ! grep -q "raspi-config\|^systemctl\|^pkill" "$WORK/docker.log"'
+reset; ENVV="NO_SYSTEMD=1" run --dir "$WORK/inst" --kiosk; rc=$?
+check "no reachable user systemd: the install still succeeds, and says how to enable the service" '[ $rc -eq 0 ] && grep -q "Could not reach your user" "$WORK/out.log" && [ -f "$UNIT" ]'
+
+# an older install opened the dashboard from the labwc autostart: moved to the service automatically
+OLDLINE="sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; exec chromium-browser --kiosk \"http://localhost:8080/?kiosk=1\"' &"
+AS="$WORK/home/.config/labwc/autostart"
+reset; mkdir -p "$WORK/home/.config/labwc"; printf '# my own thing\n%s\nwlr-randr --output HDMI-A-1 --transform 90\n' "$OLDLINE" > "$AS"; run --dir "$WORK/inst"
+check "migration: an old autostart kiosk line is removed, the owner's other lines stay, the old file is kept" '! grep -q "kiosk=1" "$AS" && grep -q "^# my own thing\$" "$AS" && grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$AS" && grep -q "kiosk=1" "$AS.bak"'
+check "migration: the service is installed and started, the old browser stopped, and the user is told" '[ -f "$UNIT" ] && grep -q "enable --now famhomebase-kiosk.service" "$WORK/docker.log" && grep -q "^pkill -x chromium" "$WORK/docker.log" && grep -q "Moved the kiosk" "$WORK/out.log"'
+: > "$WORK/docker.log"; run --dir "$WORK/inst"
+check "migration: run again, nothing left to move" '! grep -q "^pkill" "$WORK/docker.log" && ! grep -q "Moved the kiosk" "$WORK/out.log"'
+
+# rotation
+reset; run --dir "$WORK/inst" --rotate 90
+check "--rotate 90 is saved in .env for the kiosk script to apply" 'grep -q "^FAMHOMEBASE_ROTATE=90\$" "$WORK/inst/.env"'
+run --dir "$WORK/inst" --rotate 270
+check "--rotate again replaces it (one line)" '[ "$(grep -c "^FAMHOMEBASE_ROTATE=" "$WORK/inst/.env")" = 1 ] && grep -q "^FAMHOMEBASE_ROTATE=270\$" "$WORK/inst/.env"'
+run --dir "$WORK/inst" --rotate normal
+check "--rotate normal puts the screen back" 'grep -q "^FAMHOMEBASE_ROTATE=normal\$" "$WORK/inst/.env"'
+reset; run --dir "$WORK/inst"
+check "no --rotate: the screen is left alone (no setting written)" '! grep -q "FAMHOMEBASE_ROTATE" "$WORK/inst/.env"'
+reset; run --dir "$WORK/inst" --kiosk; : > "$WORK/docker.log"; run --dir "$WORK/inst" --rotate 90
+check "--rotate on a running kiosk restarts the service so it takes effect" 'grep -q "^systemctl --user restart famhomebase-kiosk.service" "$WORK/docker.log"'
+for bad in 45 left "" 1; do
+  reset; run --dir "$WORK/inst" --rotate "$bad"; rc=$?
+  check "--rotate '$bad' is refused before anything is downloaded" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ]'
+done
 
 reset; badd="$FIXTURES/$REPO/releases/download/v0.1.6"; cp "$badd/famhomebase-pi-0.1.6.tar.gz.sha256" "$WORK/good.sha"; echo "0000  x" > "$badd/famhomebase-pi-0.1.6.tar.gz.sha256"; run --dir "$WORK/inst"; rc=$?
 check "bad checksum: installs nothing" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ] && grep -q "checksum mismatch" "$WORK/out.log"'
@@ -93,8 +126,6 @@ check "unknown option is an error" '[ $rc -ne 0 ] && grep -q "unknown option" "$
 # ---- the port
 reset; run --dir "$WORK/inst" --port 80
 check "--port 80: written to .env, and the URLs have no port" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && grep -q "http://localhost/?kiosk=1" "$WORK/out.log" && ! grep -q ":8080" "$WORK/out.log"'
-reset; run --dir "$WORK/inst" --port 8081 --kiosk
-check "--port 8081 --kiosk: the autostart opens that port (and waits on it)" 'grep -q "localhost:8081/?kiosk=1" "$WORK/home/.config/labwc/autostart" && grep -q "curl -sf http://localhost:8081/" "$WORK/home/.config/labwc/autostart" && ! grep -q "__URL__\|8080" "$WORK/home/.config/labwc/autostart"'
 reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst"
 check "re-running without --port keeps the port you chose" 'grep -q "^FAMHOMEBASE_PORT=9090\$" "$WORK/inst/.env" && grep -q "localhost:9090" "$WORK/out.log"'
 reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst" --port 80
@@ -106,37 +137,14 @@ for bad in abc 0 70000 -1 ""; do
   check "--port '$bad' is refused before anything is downloaded" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ]'
 done
 
-# ---- refresh-kiosk.sh follows the port in .env
-rk="$WORK/rk"; rm -rf "$rk"; mkdir -p "$rk/scripts" "$rk/bin"; cp "$HERE/../scripts/refresh-kiosk.sh" "$rk/scripts/"
-for s in pkill sleep id; do printf '#!/bin/sh\nexit 0\n' > "$rk/bin/$s"; done
-printf '#!/bin/sh\necho 1000\n' > "$rk/bin/id"
-printf '#!/bin/sh\nexec "$@"\n' > "$rk/bin/nohup"
-printf '#!/bin/sh\necho "$*" > "$RK_OUT"\n' > "$rk/bin/chromium"
-chmod +x "$rk/bin/"*
-refresh() { rm -f "$WORK/rk.out"; env PATH="$rk/bin:$PATH" RK_OUT="$WORK/rk.out" sh "$rk/scripts/refresh-kiosk.sh"; i=0; while [ ! -s "$WORK/rk.out" ] && [ $i -lt 20 ]; do i=$((i+1)); sleep 0.1; done; }
-printf 'FAMHOMEBASE_PORT=80\nAUTO_UPDATE=true\n' > "$rk/.env"; refresh
-check "refresh-kiosk.sh opens the port from .env" 'grep -q "http://localhost:80/?kiosk=1" "$WORK/rk.out"'
-rm -f "$rk/.env"; refresh
-check "refresh-kiosk.sh defaults to port 80 with no .env (the compose default)" 'grep -q "http://localhost:80/?kiosk=1" "$WORK/rk.out"'
-check "refresh-kiosk.sh keeps the Wayland and keyring flags" 'grep -q "ozone-platform=wayland" "$WORK/rk.out" && grep -q "password-store=basic" "$WORK/rk.out"'
-
-# ---- the installer corrects an autostart file that needs it
-OLDLINE="sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; exec chromium-browser --kiosk \"http://localhost:8080/?kiosk=1\"' &"
-mk_autostart() { mkdir -p "$WORK/home/.config/labwc"; printf '%s\n%s\n%s\n' "# my own thing" "$1" "wlr-randr --output HDMI-A-1 --transform 90" > "$WORK/home/.config/labwc/autostart"; }
-reset; mk_autostart "$OLDLINE"; run --dir "$WORK/inst" --port 80
-A="$WORK/home/.config/labwc/autostart"
-check "autostart: the stale kiosk line is corrected (port and flags) without --kiosk" 'grep -q "localhost/?kiosk=1" "$A" && ! grep -q "8080" "$A" && grep -q "ozone-platform=wayland" "$A" && grep -q "password-store=basic" "$A" && ! grep -q "__URL__" "$A"'
-check "autostart: the owner's other lines are untouched" 'grep -q "^# my own thing\$" "$A" && grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$A"'
-check "autostart: the old file is kept as autostart.bak, and the user is told to restart the display" 'grep -q "8080" "$A.bak" && grep -q "Corrected the kiosk line" "$WORK/out.log" && grep -q "refresh-kiosk.sh" "$WORK/out.log"'
-check "autostart: exactly one kiosk line" '[ "$(grep -c "kiosk=1" "$A")" = 1 ]'
-rm -f "$A.bak"; run --dir "$WORK/inst" --port 80
-check "autostart: already correct means no change, no new backup, no message" '[ ! -e "$A.bak" ] && ! grep -q "Corrected the kiosk line" "$WORK/out.log"'
-reset; mkdir -p "$WORK/home/.config/labwc"; printf 'wlr-randr --output HDMI-A-1 --transform 90\n' > "$WORK/home/.config/labwc/autostart"; run --dir "$WORK/inst"
-check "autostart: a file with no kiosk line is left alone unless --kiosk is given" '[ "$(cat "$WORK/home/.config/labwc/autostart")" = "wlr-randr --output HDMI-A-1 --transform 90" ] && [ ! -e "$WORK/home/.config/labwc/autostart.bak" ]'
-reset; mk_autostart "$OLDLINE"; run --dir "$WORK/inst" --port 8081 --kiosk
-check "autostart: --kiosk on a file that already has the line corrects it rather than adding a second" '[ "$(grep -c "kiosk=1" "$WORK/home/.config/labwc/autostart")" = 1 ] && grep -q "localhost:8081/?kiosk=1" "$WORK/home/.config/labwc/autostart"'
-reset; run --dir "$WORK/inst"
-check "autostart: no file and no --kiosk: none is created" '[ ! -e "$WORK/home/.config/labwc/autostart" ]'
+# ---- refresh-kiosk.sh restarts the service
+rk="$WORK/rk"; rm -rf "$rk"; mkdir -p "$rk/bin"
+printf '#!/bin/sh\necho "systemctl $*" >> "$RK_LOG"\n[ "$2" = cat ] && [ -n "${RK_NO_UNIT:-}" ] && exit 1\nexit 0\n' > "$rk/bin/systemctl"
+chmod +x "$rk/bin/systemctl"
+: > "$WORK/rk.log"; env PATH="$rk/bin:$PATH" RK_LOG="$WORK/rk.log" sh "$HERE/../scripts/refresh-kiosk.sh"
+check "refresh-kiosk.sh restarts the kiosk service" 'grep -q "^systemctl --user restart famhomebase-kiosk.service" "$WORK/rk.log"'
+: > "$WORK/rk.log"; env PATH="$rk/bin:$PATH" RK_LOG="$WORK/rk.log" RK_NO_UNIT=1 sh "$HERE/../scripts/refresh-kiosk.sh" 2>"$WORK/rk.err"; rc=$?
+check "refresh-kiosk.sh with no service installed says how to install it, and fails" '[ $rc -ne 0 ] && grep -q "kiosk service isn.t installed" "$WORK/rk.err" && ! grep -q "restart" "$WORK/rk.log"'
 
 echo; echo "$n checks, $fail failed"
 [ "$fail" -eq 0 ]

@@ -7,9 +7,8 @@
 # app and sidecar, waits for them to be healthy, and rolls back if they are not. Your ./data, ./secrets and ./.env are
 # never touched. Set AUTO_UPDATE=false in .env to be told about new releases (in this service's log) without installing.
 #
-#   update.sh                   run forever (what the service does)
-#   update.sh --once            check (and apply) once, then exit — handy for testing: docker compose run --rm updater sh ./updater/update.sh --once
-#   update.sh --fix-autostart   just correct the kiosk line in the owner's autostart file, then exit
+#   update.sh           run forever (what the service does)
+#   update.sh --once    check (and apply) once, then exit — handy for testing: docker compose run --rm updater sh ./updater/update.sh --once
 set -u
 
 # This script is replaced by the very update it applies, and a shell reads its script as it runs — so run from a copy.
@@ -99,27 +98,6 @@ fix_owner() {
   return 0
 }
 
-# The kiosk autostart file lives in the owner's home, which this container can't see. The Docker socket this service already has
-# can: run the shared fix script (scripts/fix-autostart.sh, the same one the installer uses) in a throwaway container with just
-# that one folder mounted. Run after every update and once when this service starts, so the line that opens the dashboard
-# never goes stale (wrong port, old flags). It assumes the install folder sits in the owner's home (the installer's default) and
-# quietly does nothing otherwise: --mount, unlike -v, refuses to create a missing folder on the host.
-fix_kiosk_autostart() {
-  port=$(sed -n 's/^FAMHOMEBASE_PORT=\([0-9][0-9]*\)$/\1/p' "$DIR/.env" 2>/dev/null | tail -n 1)
-  port=${port:-80}
-  if [ "$port" = 80 ]; then url=http://localhost; else url="http://localhost:$port"; fi
-  image=$($DOCKER inspect -f '{{.Config.Image}}' "$(hostname)" 2>/dev/null)
-  [ -n "$image" ] || return 0
-  result=$($DOCKER run --rm \
-    --mount "type=bind,source=$(dirname "$DIR")/.config/labwc,target=/labwc" \
-    --mount "type=bind,source=$DIR/scripts,target=/scripts,readonly" \
-    "$image" sh /scripts/fix-autostart.sh /labwc/autostart "$url" 2>/dev/null) || return 0
-  case "$result" in
-    changed) log "corrected the kiosk line in your labwc autostart file so it opens $url (the old file is saved as autostart.bak) — reboot, or run scripts/refresh-kiosk.sh, to restart the display with it" ;;
-  esac
-  return 0
-}
-
 apply_update() { # $1 = new version (x.y.z)
   ver=$1
   stage=$(mktemp -d) || return 1
@@ -175,8 +153,6 @@ apply_update() { # $1 = new version (x.y.z)
     return 1
   fi
 
-  fix_kiosk_autostart
-
   echo "$ver $(date '+%Y-%m-%d %H:%M:%S')" > "$DIR/.last-update"
   rm -f "$DIR/.update-failed" "$DIR/.update-available"
   fix_owner
@@ -216,18 +192,12 @@ check_once() {
   apply_update "$latest" || log "update to $latest did not complete; staying on $current"
 }
 
-if [ "${1:-}" = "--fix-autostart" ]; then
-  fix_kiosk_autostart
-  exit 0
-fi
-
 if [ "${1:-}" = "--once" ]; then
   check_once
   exit 0
 fi
 
 log "started: watching $REPO (every ${INTERVAL_HOURS}h, auto-update: $AUTO_UPDATE, install dir: $DIR)"
-fix_kiosk_autostart
 sleep "$FIRST_DELAY"
 while true; do
   check_once

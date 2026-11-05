@@ -28,7 +28,6 @@ case "$1 $2" in
   "compose ps") echo "id-$4" ;;
   "inspect -f") case "$4" in id-*) echo "${HEALTH:-healthy}" ;; *) echo "docker:27-cli" ;; esac ;;
   "run -d") echo helper ;;
-  "run --rm") [ -z "${FAIL_RUN:-}" ] && echo "${FIX_RESULT:-changed}" || exit 1 ;;
 esac
 STUB
 chmod +x "$WORK/bin/wget" "$WORK/bin/docker"
@@ -70,7 +69,7 @@ fresh() {
 run() { # runs the updater once with the stubs; extra env via "$@" (VAR=value ...)
   env PATH="$WORK/bin:$PATH" FIXTURES="$FIXTURES" DOCKER_LOG="$WORK/docker.log" FAMHOMEBASE_DIR="$WORK/inst" \
     GITHUB_API=https://api.github.com GITHUB_DOWNLOAD=https://github.com HEALTH_TIMEOUT_SECONDS=2 HEALTH_POLL_SECONDS=1 \
-    "$@" sh "$SCRIPT" "${ARG:---once}" > "$WORK/out.log" 2>&1
+    "$@" sh "$SCRIPT" --once > "$WORK/out.log" 2>&1
 }
 
 # ---- version comparison (source the function by running the script's own logic)
@@ -95,27 +94,11 @@ check "update: pulled then restarted app and configstore" 'grep -q "^compose pul
 check "update: hands recreating itself to a helper container" 'grep -q "^run -d --rm" "$WORK/docker.log"'
 check "update: records the update, no failure marker" '[ -f "$WORK/inst/.last-update" ] && [ ! -f "$WORK/inst/.update-failed" ]'
 
-# ---- the kiosk autostart file is kept current after an update
-HOME_DIR=$(dirname "$WORK/inst")
-check "autostart: after an update, the shared fix script runs in a throwaway container with only the labwc folder mounted" 'grep -q "^run --rm --mount type=bind,source=$HOME_DIR/.config/labwc,target=/labwc --mount type=bind,source=$WORK/inst/scripts,target=/scripts,readonly docker:27-cli sh /scripts/fix-autostart.sh /labwc/autostart http://localhost\$" "$WORK/docker.log"'
-check "autostart: and says so when it changed something" 'grep -q "corrected the kiosk line" "$WORK/out.log"'
-fresh 0.1.4; publish 0.1.5; echo "FAMHOMEBASE_PORT=8081" >> "$WORK/inst/.env"; run
-check "autostart: the address it writes follows the port in .env" 'grep -q "fix-autostart.sh /labwc/autostart http://localhost:8081\$" "$WORK/docker.log"'
-fresh 0.1.4; publish 0.1.5; run FIX_RESULT=unchanged
-check "autostart: nothing to say when the file was already right" '! grep -q "corrected the kiosk line" "$WORK/out.log"'
-fresh 0.1.4; publish 0.1.5; run FAIL_RUN=1
-check "autostart: a missing labwc folder (not that kind of Pi, or another install folder) never fails the update" '[ "$(cat "$WORK/inst/VERSION")" = 0.1.5 ] && grep -q "0.1.5 is healthy" "$WORK/out.log"'
-fresh 0.1.4; publish 0.1.4; run
-check "autostart: not touched when there is nothing to update" '! grep -q "^run --rm" "$WORK/docker.log"'
-fresh 0.1.4; publish 0.1.5; ARG=--fix-autostart run
-check "autostart: --fix-autostart does just that (what the service does when it starts)" 'grep -q "^run --rm" "$WORK/docker.log" && ! grep -q "^compose" "$WORK/docker.log" && [ "$(cat "$WORK/inst/VERSION")" = 0.1.4 ]'
-
 # ---- a release that does not come up healthy is rolled back
 fresh 0.1.4; publish 0.1.5; run HEALTH=unhealthy
 check "rollback: previous files restored"  '[ "$(cat "$WORK/inst/VERSION")" = 0.1.4 ] && grep -q "app:0.1.4" "$WORK/inst/docker-compose.yml" && grep -q "old script" "$WORK/inst/scripts/generate-key.sh"'
 check "rollback: data untouched"           '[ "$(cat "$WORK/inst/data/config.json")" = KEEP-ME ]'
 check "rollback: restarted on the old files, and no self-recreate helper" '[ "$(grep -c "^compose up -d app configstore" "$WORK/docker.log")" = 2 ] && ! grep -q "^run -d" "$WORK/docker.log"'
-check "rollback: the autostart file is not touched" '! grep -q "^run --rm" "$WORK/docker.log"'
 check "rollback: remembers the failed version" 'grep -q "^0.1.5 " "$WORK/inst/.update-failed"'
 : > "$WORK/docker.log"; run
 check "rollback: does not retry the same bad version straight away" 'grep -q "failed to start recently" "$WORK/out.log" && [ ! -s "$WORK/docker.log" ]'

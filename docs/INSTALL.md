@@ -50,11 +50,9 @@ curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/dow
 
 It installs into `~/famhomebase-pi`. Options go after `sh -s --`, for example `--port 8080` serves it on that port instead
 (the default is port 80, so the address is plain `http://<address>/`; the port must be free on this machine, and `--port 8080` is a common alternative), `... | sh -s -- --kiosk` also sets the Pi up to
-show the dashboard full-screen at boot (section 5 does the same by hand), `--dir /some/folder` installs elsewhere, and
+show the dashboard full-screen at boot (section 5), `--dir /some/folder` installs elsewhere, and
 `--version 0.1.5` picks a release. Running it again on an existing install updates it and leaves your settings, accounts
-and key alone. It also **corrects the kiosk line in your autostart file** if it's out of date (for example after a port
-change): the right address and current flags go in, your other lines in that file stay, and the old file is saved as
-`autostart.bak`. Run `~/famhomebase-pi/scripts/refresh-kiosk.sh` afterwards to restart the display with it.
+and key alone.
 
 > **Back up `~/famhomebase-pi/secrets/dashboard.key`, separately from `./data`.** It encrypts your connected-account
 > tokens. If you lose it you keep your layout and settings but have to reconnect your calendars.
@@ -121,73 +119,65 @@ every permission box ticked. If your laptop already uses port 8080, use another 
 
 ## 5. Show it on the Pi's screen
 
-The display is the same page with `?kiosk=1`, which hides the menu and the mouse pointer. First check what the browser
-is called on your system:
+The display is the same page with `?kiosk=1`, which hides the menu and the mouse pointer. On Raspberry Pi OS with the
+desktop (labwc), one command sets it up: a small **systemd user service** that opens the dashboard full-screen, waits for it
+to be up first, and restarts the browser if it ever crashes.
 
 ```bash
-which chromium chromium-browser
+curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sh -s -- --kiosk
 ```
 
-On Raspberry Pi OS based on Debian 13 ("trixie") it is `chromium`; older releases use `chromium-browser`.
+That also turns on desktop autologin (so the Pi needs no keyboard at boot) and starts the service now. Reboot to see it come
+up on its own.
 
-### Start it automatically
+The service just runs `~/famhomebase-pi/scripts/kiosk.sh`, which reads its settings from `.env` every time it starts — so
+updates, port changes and rotation never need anything in your home folder edited. An older install that opened the
+dashboard from `~/.config/labwc/autostart` is moved over to the service automatically the next time you run the installer
+(the old file is saved as `autostart.bak`, and your other lines in it stay).
 
-1. Make the Pi log into the desktop by itself, so it needs no keyboard at boot:
-
-   ```bash
-   sudo raspi-config nonint do_boot_behaviour B4      # B4 = desktop, logged in automatically
-   ```
-
-2. On current Raspberry Pi OS the desktop is `labwc` (Wayland). Create its autostart file:
-
-   ```bash
-   mkdir -p ~/.config/labwc
-   cat > ~/.config/labwc/autostart <<'EOF'
-   # Wait for the dashboard to be up, then open it full-screen on the Pi's display.
-   sh -c 'until curl -sf http://localhost/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost/?kiosk=1"' &
-   EOF
-   ```
-
-   What the flags are for:
-   - the `until curl …` loop waits for the dashboard — otherwise the browser can start before Docker has it up and
-     land on an error page
-   - `--ozone-platform=wayland` makes Chromium use the Wayland desktop (without it, starting it over SSH fails with
-     "Missing X server or $DISPLAY")
-   - `--password-store=basic` stops Chromium asking to unlock a keyring at boot — a prompt you can't answer without a
-     keyboard
-
-   Older X11-based installs use `~/.config/lxsession/LXDE-pi/autostart` instead, and don't need the Wayland flag.
-
-3. Reboot: `sudo reboot`. About a minute later, `pgrep -a chromium | head -1` should show it running.
-
-A command that fails in the autostart file fails silently, so if nothing appears, test it by hand first — from SSH,
-pointing it at the Pi's screen:
+Restart the display after you change something, from SSH:
 
 ```bash
-XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 chromium --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost/?kiosk=1" > /tmp/chromium.log 2>&1 &
-sleep 6; head /tmp/chromium.log
+~/famhomebase-pi/scripts/refresh-kiosk.sh        # = systemctl --user restart famhomebase-kiosk
+systemctl --user status famhomebase-kiosk         # is it running?
+journalctl --user -u famhomebase-kiosk -n 30      # what did it say?
 ```
-
-This needs the desktop to be running (see the autologin step). Close the browser with `pkill chromium`.
 
 ### Rotate the screen
 
-For a portrait display, list the screen's name and rotate it with `wlr-randr` (`sudo apt install wlr-randr` if it's
-missing):
+For a portrait display, set the rotation (90, 180 or 270; try the other if it comes out upside down):
 
 ```bash
-export XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0
-wlr-randr                                           # shows the output name, e.g. HDMI-A-1
-wlr-randr --output HDMI-A-1 --transform 90          # or 270 if it comes out upside down
+curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sh -s -- --rotate 90
 ```
 
-To keep it after a reboot, add that last line to the top of `~/.config/labwc/autostart`:
+or edit `~/famhomebase-pi/.env` yourself (`FAMHOMEBASE_ROTATE=90`, and `FAMHOMEBASE_OUTPUT=HDMI-A-1` if you have more than one
+display) and run `refresh-kiosk.sh`. It needs `wlr-randr` (`sudo apt install wlr-randr`). `--rotate normal` puts it back. Then
+set the screen's orientation in the dashboard under Settings. A touchscreen may need its own rotation.
 
-```bash
-sed -i '1i wlr-randr --output HDMI-A-1 --transform 90' ~/.config/labwc/autostart
+<details>
+<summary>Doing it by hand instead</summary>
+
+Create `~/.config/systemd/user/famhomebase-kiosk.service`:
+
+```ini
+[Unit]
+Description=FamHomeBase kiosk display
+
+[Service]
+ExecStart=/home/<you>/famhomebase-pi/scripts/kiosk.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
 ```
 
-Then set the screen's orientation in the dashboard under Settings. A touchscreen may need its own rotation.
+then `systemctl --user daemon-reload && systemctl --user enable --now famhomebase-kiosk` and
+`sudo raspi-config nonint do_boot_behaviour B4` (desktop autologin). This is for the labwc (Wayland) desktop; an older
+X11-based install isn't covered.
+
+</details>
 
 ## 6. Start on boot
 
@@ -199,9 +189,7 @@ script above already enables Docker on boot; if you installed it another way, ru
 **Automatic, by default.** The `updater` service checks GitHub for a new release every 6 hours. When there is one it
 downloads it, checks its checksum, pulls the new images, restarts the dashboard, and waits for it to be healthy. If the new
 version doesn't come up, it puts the previous one back and won't retry that version for a day. Your `./data`, `./secrets`
-and `.env` are never touched. It also keeps the kiosk line in `~/.config/labwc/autostart` current (the right port, today's
-flags), after each update and whenever the updater starts: if it has to change the file, the old one is saved as
-`autostart.bak` and the log says so. (It assumes the install folder is in your home folder, which is where the installer puts it.) The dashboard blinks for about a minute while it restarts, and the first time you open the
+and `.env` are never touched. The dashboard blinks for about a minute while it restarts, and the first time you open the
 admin screens afterwards you'll be asked for your PIN again. Reload the Pi's browser to pick up the new page
 (`~/famhomebase-pi/scripts/refresh-kiosk.sh`, or `sudo reboot`) — newer versions of the display reload themselves.
 

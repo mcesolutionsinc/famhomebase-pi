@@ -9,7 +9,10 @@
 #   --dir DIR        where to install (default: ~/famhomebase-pi)
 #   --version X.Y.Z  install that release instead of the latest
 #   --port N         the port to browse to (default 80, giving http://<address>/ — it must be free; 8080 is a common alternative)
-#   --kiosk          also make this Pi show the dashboard full-screen at boot (Raspberry Pi OS desktop)
+#   --kiosk          also make this Pi show the dashboard full-screen at boot (Raspberry Pi OS desktop, labwc): installs a
+#                    systemd user service that runs scripts/kiosk.sh. (An older install that opened the dashboard from
+#                    ~/.config/labwc/autostart is moved over to the service automatically.)
+#   --rotate DEG     rotate the Pi's screen: 90, 180, 270 or normal (saved as FAMHOMEBASE_ROTATE in .env)
 #   --no-start       download and set up, but don't start the containers
 #
 # Needs Docker with the Compose plugin already installed (see docs/INSTALL.md).
@@ -21,6 +24,7 @@ DL="${GITHUB_DOWNLOAD:-https://github.com}"
 DIR="${FAMHOMEBASE_DIR:-$HOME/famhomebase-pi}"
 WANT=""
 PORT=""
+ROTATE=""
 START=1
 KIOSK=0
 
@@ -32,6 +36,7 @@ while [ $# -gt 0 ]; do
     --dir) [ $# -ge 2 ] || die "--dir needs a folder"; DIR=$2; shift ;;
     --version) [ $# -ge 2 ] || die "--version needs a number like 0.1.5"; WANT=${2#v}; shift ;;
     --port) [ $# -ge 2 ] && [ -n "$2" ] || die "--port needs a number"; PORT=$2; shift ;;
+    --rotate) [ $# -ge 2 ] && [ -n "$2" ] || die "--rotate needs 90, 180, 270 or normal"; ROTATE=$2; shift ;;
     --kiosk) KIOSK=1 ;;
     --no-start) START=0 ;;
     -h|--help) sed -n '2,15p' "$0" 2>/dev/null || true; exit 0 ;;
@@ -53,6 +58,7 @@ if [ -z "$WANT" ]; then
   [ -n "${tag:-}" ] || die "could not find the latest release of $REPO (offline, or none published yet)"
   WANT=${tag#v}
 fi
+case "$ROTATE" in ''|normal|90|180|270) ;; *) die "'$ROTATE' is not a rotation: use 90, 180, 270 or normal" ;; esac
 if [ -n "$PORT" ]; then
   echo "$PORT" | grep -Eq '^[0-9]+$' && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "'$PORT' is not a port number (1-65535)"
 fi
@@ -109,30 +115,66 @@ if [ "$START" -eq 1 ]; then
   (cd "$DIR" && docker compose pull && docker compose up -d) || die "docker compose failed. If it says permission denied, add yourself to the docker group (sudo usermod -aG docker \$USER), log out and back in, and run this again. If it says the port is already in use, run this again with --port 8080 (or any free port)."
 fi
 
-# The kiosk autostart (Raspberry Pi OS desktop, labwc). The line that opens the dashboard is kept current on every run: if the
-# autostart file already has one (this installer's, or a hand-made copy of it) it is corrected in place — right address,
-# current flags — and the owner's other lines stay (see scripts/fix-autostart.sh). --kiosk additionally adds the line when there
-# is none, and turns on desktop autologin.
-autostart="$HOME/.config/labwc/autostart"
-
-if [ "$KIOSK" -eq 1 ]; then
-  say "Setting this Pi to show the dashboard full-screen at boot..."
-  if command -v raspi-config >/dev/null 2>&1; then
-    sudo raspi-config nonint do_boot_behaviour B4 || say "  (could not turn on desktop autologin — do it in raspi-config: System Options > Boot / Auto Login)"
+# Rotation is a setting in .env that scripts/kiosk.sh applies when the display starts.
+if [ -n "$ROTATE" ]; then
+  if grep -q '^FAMHOMEBASE_ROTATE=' "$DIR/.env"; then
+    sed "s|^FAMHOMEBASE_ROTATE=.*|FAMHOMEBASE_ROTATE=$ROTATE|" "$DIR/.env" > "$DIR/.env.new" && mv "$DIR/.env.new" "$DIR/.env"
   else
-    say "  (raspi-config not found — make sure this machine logs into its desktop automatically)"
+    printf 'FAMHOMEBASE_ROTATE=%s\n' "$ROTATE" >> "$DIR/.env"
   fi
-  autostart_result=$(sh "$DIR/scripts/fix-autostart.sh" "$autostart" "$LOCAL_URL" --add)
-else
-  autostart_result=$(sh "$DIR/scripts/fix-autostart.sh" "$autostart" "$LOCAL_URL")
 fi
-case "$autostart_result" in
-  changed)
-    say "Corrected the kiosk line in $autostart (it opens $LOCAL_URL/?kiosk=1 now; the old file is saved as autostart.bak)."
-    say "  Run $DIR/scripts/refresh-kiosk.sh, or reboot, to restart the display with it." ;;
-  added)
-    say "  Wrote the kiosk line into $autostart (an existing file is kept and saved as autostart.bak). Reboot to start the display." ;;
-esac
+
+# The kiosk display (Raspberry Pi OS desktop, labwc): a systemd user service that runs scripts/kiosk.sh. The script reads the
+# port and rotation from .env and an update replaces it, so nothing here needs correcting again. An older install opened the
+# dashboard from a line in ~/.config/labwc/autostart; if that line is there, this Pi is a kiosk, so move it over to the service.
+autostart="$HOME/.config/labwc/autostart"
+legacy=0
+{ [ -f "$autostart" ] && grep -q 'kiosk=1' "$autostart"; } && legacy=1
+
+if [ "$KIOSK" -eq 1 ] || [ "$legacy" -eq 1 ]; then
+  if [ "$KIOSK" -eq 1 ]; then
+    say "Setting this Pi to show the dashboard full-screen at boot..."
+    if command -v raspi-config >/dev/null 2>&1; then
+      sudo raspi-config nonint do_boot_behaviour B4 || say "  (could not turn on desktop autologin — do it in raspi-config: System Options > Boot / Auto Login)"
+    else
+      say "  (raspi-config not found — make sure this machine logs into its desktop automatically)"
+    fi
+  fi
+
+  unit_dir="$HOME/.config/systemd/user"
+  mkdir -p "$unit_dir"
+  cat > "$unit_dir/famhomebase-kiosk.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase kiosk display
+
+[Service]
+ExecStart=$DIR/scripts/kiosk.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+UNIT_EOF
+
+  if [ "$legacy" -eq 1 ]; then
+    cp -f "$autostart" "$autostart.bak"
+    awk '/kiosk=1/ { next } { print }' "$autostart.bak" > "$autostart.new" && cat "$autostart.new" > "$autostart"
+    rm -f "$autostart.new"
+    say "Moved the kiosk from $autostart to a systemd service (the old file is saved as autostart.bak; your other lines in it stay)."
+    pkill -x chromium >/dev/null 2>&1 || true # the old kiosk's browser: the service starts its own
+  fi
+
+  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  export XDG_RUNTIME_DIR
+  if systemctl --user daemon-reload >/dev/null 2>&1; then
+    if [ "$START" -eq 1 ]; then systemctl --user enable --now famhomebase-kiosk.service >/dev/null 2>&1 && say "  The kiosk service is running; restart it any time with $DIR/scripts/refresh-kiosk.sh."
+    else systemctl --user enable famhomebase-kiosk.service >/dev/null 2>&1; fi
+  else
+    say "  Could not reach your user's systemd (normal when run from a session with no desktop login yet). It starts at the next login; or run: systemctl --user enable --now famhomebase-kiosk.service"
+  fi
+elif [ -n "$ROTATE" ] && systemctl --user is-active famhomebase-kiosk.service >/dev/null 2>&1; then
+  systemctl --user restart famhomebase-kiosk.service >/dev/null 2>&1 || true
+fi
 
 say ""
 say "Done. FamHomeBase $WANT is installed in $DIR."
