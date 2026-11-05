@@ -17,8 +17,8 @@ curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/dow
 
 That downloads the latest release, creates your encryption key and starts everything. Then:
 
-- Set it up from a phone or laptop: `http://<pi-address>:8080/` (it asks you to set an admin PIN first)
-- The Pi's screen: `http://localhost:8080/?kiosk=1`
+- Set it up from a phone or laptop: `http://<pi-address>/` (it asks you to set an admin PIN first)
+- The Pi's screen: `http://localhost/?kiosk=1`
 - **It updates itself.** A small `updater` service checks for new releases every few hours, installs them, and rolls back
   if one doesn't start. Turn it off with `AUTO_UPDATE=false` in `.env`. Details in the [install guide](docs/INSTALL.md).
 

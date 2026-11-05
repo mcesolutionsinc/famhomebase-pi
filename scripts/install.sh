@@ -8,7 +8,7 @@
 # Options:
 #   --dir DIR        where to install (default: ~/famhomebase-pi)
 #   --version X.Y.Z  install that release instead of the latest
-#   --port N         the port to browse to (default 8080; 80 gives http://<address>/ — it must be free)
+#   --port N         the port to browse to (default 80, giving http://<address>/ — it must be free; 8080 is a common alternative)
 #   --kiosk          also make this Pi show the dashboard full-screen at boot (Raspberry Pi OS desktop)
 #   --no-start       download and set up, but don't start the containers
 #
@@ -70,6 +70,8 @@ actual=$(sha256sum "$tmp/$name.tar.gz" | cut -d' ' -f1)
 
 existing=""
 [ -f "$DIR/VERSION" ] && existing=$(tr -d ' \r\n' < "$DIR/VERSION")
+had_env=1
+[ -f "$DIR/.env" ] || had_env=0
 mkdir -p "$DIR"
 tar -xzf "$tmp/$name.tar.gz" -C "$DIR"
 DIR=$(cd "$DIR" && pwd)
@@ -82,7 +84,8 @@ elif ! grep -q '^FAMHOMEBASE_DIR=' "$DIR/.env"; then
   printf 'FAMHOMEBASE_DIR=%s\n' "$DIR" >> "$DIR/.env"
 fi
 
-# The port: --port wins; else whatever .env already says (so re-running keeps your choice); else 8080.
+# The port: --port wins; else what .env already says (so re-running keeps your choice); else 80 for a new install. An install
+# from before 80 became the default has been on 8080 and has no setting yet — keep it there rather than move it unasked.
 if [ -n "$PORT" ]; then
   if grep -q '^FAMHOMEBASE_PORT=' "$DIR/.env"; then
     sed "s|^FAMHOMEBASE_PORT=.*|FAMHOMEBASE_PORT=$PORT|" "$DIR/.env" > "$DIR/.env.new" && mv "$DIR/.env.new" "$DIR/.env"
@@ -91,7 +94,15 @@ if [ -n "$PORT" ]; then
   fi
 else
   PORT=$(sed -n 's/^FAMHOMEBASE_PORT=\([0-9][0-9]*\)$/\1/p' "$DIR/.env" | tail -n 1)
-  PORT=${PORT:-8080}
+  if [ -z "$PORT" ]; then
+    if [ "$had_env" -eq 1 ]; then
+      PORT=8080
+      say "Keeping this install on port 8080, which it has been using (change it any time with --port)."
+    else
+      PORT=80
+    fi
+    printf 'FAMHOMEBASE_PORT=%s\n' "$PORT" >> "$DIR/.env"
+  fi
 fi
 if [ "$PORT" = 80 ]; then BASE_URL="http://<this-machine's address>"; LOCAL_URL="http://localhost"; else BASE_URL="http://<this-machine's address>:$PORT"; LOCAL_URL="http://localhost:$PORT"; fi
 
@@ -103,8 +114,20 @@ fi
 
 if [ "$START" -eq 1 ]; then
   say "Starting FamHomeBase (the first start downloads the images)..."
-  (cd "$DIR" && docker compose pull && docker compose up -d) || die "docker compose failed. If it says permission denied, add yourself to the docker group (sudo usermod -aG docker \$USER), log out and back in, and run this again."
+  (cd "$DIR" && docker compose pull && docker compose up -d) || die "docker compose failed. If it says permission denied, add yourself to the docker group (sudo usermod -aG docker \$USER), log out and back in, and run this again. If it says the port is already in use, run this again with --port 8080 (or any free port)."
 fi
+
+# The kiosk autostart (Raspberry Pi OS desktop, labwc). The line that opens the dashboard is kept current on every run: if an
+# autostart file already has one (this installer's, or a hand-made copy of it), it is corrected in place — right port, current
+# flags — and any other lines in the file are left alone. --kiosk additionally adds the line when there is none, and turns on
+# desktop autologin.
+autostart="$HOME/.config/labwc/autostart"
+kiosk_comment="# Wait for the dashboard to be up, then open it full-screen on the Pi's display."
+kiosk_line=$(cat <<'KIOSK_EOF'
+sh -c 'until curl -sf __URL__/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "__URL__/?kiosk=1"' &
+KIOSK_EOF
+)
+kiosk_line=$(printf '%s' "$kiosk_line" | sed "s|__URL__|$LOCAL_URL|g")
 
 if [ "$KIOSK" -eq 1 ]; then
   say "Setting this Pi to show the dashboard full-screen at boot..."
@@ -113,15 +136,24 @@ if [ "$KIOSK" -eq 1 ]; then
   else
     say "  (raspi-config not found — make sure this machine logs into its desktop automatically)"
   fi
-  autostart="$HOME/.config/labwc/autostart"
+fi
+
+if [ -f "$autostart" ] && grep -q 'kiosk=1' "$autostart"; then
+  awk -v line="$kiosk_line" '/kiosk=1/ { if (!done) { print line; done = 1 } ; next } { print }' "$autostart" > "$autostart.new"
+  if cmp -s "$autostart" "$autostart.new"; then
+    rm -f "$autostart.new"
+  else
+    cp -f "$autostart" "$autostart.bak"
+    mv "$autostart.new" "$autostart"
+    say "Corrected the kiosk line in $autostart (it opens $LOCAL_URL/?kiosk=1 now; the old file is saved as autostart.bak)."
+    say "  Run ~/famhomebase-pi/scripts/refresh-kiosk.sh, or reboot, to restart the display with it."
+  fi
+elif [ "$KIOSK" -eq 1 ]; then
   mkdir -p "$(dirname "$autostart")"
   [ -f "$autostart" ] && cp -f "$autostart" "$autostart.bak"
-  cat > "$autostart" <<'KIOSK_EOF'
-# Wait for the dashboard to be up, then open it full-screen on the Pi's display.
-sh -c 'until curl -sf __URL__/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "__URL__/?kiosk=1"' &
-KIOSK_EOF
-  sed "s|__URL__|$LOCAL_URL|g" "$autostart" > "$autostart.new" && mv "$autostart.new" "$autostart"
-  say "  Wrote $autostart (the old one, if any, is saved as autostart.bak). Reboot to start the display."
+  { [ -f "$autostart" ] && cat "$autostart"; printf '%s\n%s\n' "$kiosk_comment" "$kiosk_line"; } > "$autostart.new"
+  mv "$autostart.new" "$autostart"
+  say "  Wrote $autostart (an existing one is kept, with the kiosk line added, and saved as autostart.bak). Reboot to start the display."
 fi
 
 say ""

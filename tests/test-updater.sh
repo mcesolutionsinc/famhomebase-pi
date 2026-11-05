@@ -93,6 +93,10 @@ check "update: data, secrets and .env untouched" '[ "$(cat "$WORK/inst/data/conf
 check "update: pulled then restarted app and configstore" 'grep -q "^compose pull app configstore" "$WORK/docker.log" && grep -q "^compose up -d app configstore" "$WORK/docker.log"'
 check "update: hands recreating itself to a helper container" 'grep -q "^run -d --rm" "$WORK/docker.log"'
 check "update: records the update, no failure marker" '[ -f "$WORK/inst/.last-update" ] && [ ! -f "$WORK/inst/.update-failed" ]'
+check "update: an install that never chose a port is pinned to 8080 before the new default (80) arrives" '[ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ] && grep -q "^FAMHOMEBASE_PORT=8080\$" "$WORK/inst/.env" && grep -q "keeping this install on port 8080" "$WORK/out.log"'
+fresh 0.1.4; publish 0.1.5; echo "FAMHOMEBASE_PORT=80" >> "$WORK/inst/.env"; run
+check "update: a port the owner already chose is left exactly as it is" '[ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ] && grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && ! grep -q "keeping this install on port" "$WORK/out.log"'
+fresh 0.1.4; publish 0.1.5; run
 
 # ---- a release that does not come up healthy is rolled back
 fresh 0.1.4; publish 0.1.5; run HEALTH=unhealthy

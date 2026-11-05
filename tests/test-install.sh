@@ -34,7 +34,7 @@ pay="$WORK/pay"; mkdir -p "$pay/scripts"
 for v in 0.1.5 0.1.6; do
   rm -rf "$pay"; mkdir -p "$pay/scripts"
   echo "services: {}" > "$pay/docker-compose.yml"; echo "$v" > "$pay/VERSION"
-  printf 'FAMHOMEBASE_DIR=/home/pi/famhomebase-pi\nAUTO_UPDATE=true\n' > "$pay/.env.example"
+  printf 'FAMHOMEBASE_DIR=/home/pi/famhomebase-pi\nFAMHOMEBASE_PORT=80\nAUTO_UPDATE=true\n' > "$pay/.env.example"
   printf '#!/bin/sh\nmkdir -p secrets && echo KEY > secrets/dashboard.key\n' > "$pay/scripts/generate-key.sh"
   d="$FIXTURES/$REPO/releases/download/v$v"; mkdir -p "$d"
   tar -czf "$d/famhomebase-pi-$v.tar.gz" -C "$pay" .
@@ -53,7 +53,7 @@ check "fresh install: latest release, files in place" '[ "$(cat "$WORK/inst/VERS
 check "fresh install: .env points at the install folder" 'grep -q "^FAMHOMEBASE_DIR=$WORK/inst\$" "$WORK/inst/.env" && grep -q "^AUTO_UPDATE=true" "$WORK/inst/.env"'
 check "fresh install: encryption key created" '[ -f "$WORK/inst/secrets/dashboard.key" ]'
 check "fresh install: pulled and started" 'grep -q "^compose pull" "$WORK/docker.log" && grep -q "^compose up -d" "$WORK/docker.log"'
-check "fresh install: tells you where to go next" 'grep -q "http://localhost:8080/?kiosk=1" "$WORK/out.log"'
+check "fresh install: port 80, so the addresses have no port" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && grep -q "http://localhost/?kiosk=1" "$WORK/out.log" && ! grep -q ":8080" "$WORK/out.log"'
 
 reset; run --dir "$WORK/inst" --version 0.1.5
 check "--version installs that release, not the latest" '[ "$(cat "$WORK/inst/VERSION")" = 0.1.5 ]'
@@ -63,6 +63,7 @@ run --dir "$WORK/inst"
 check "re-run upgrades to the latest" '[ "$(cat "$WORK/inst/VERSION")" = 0.1.6 ] && grep -q "Updated 0.1.5 -> 0.1.6" "$WORK/out.log"'
 check "re-run keeps the key, data and .env" '[ "$(cat "$WORK/inst/secrets/dashboard.key")" = MY-KEY ] && [ "$(cat "$WORK/inst/data/config.json")" = KEEP ] && grep -q "AUTO_UPDATE=false" "$WORK/inst/.env"'
 check "re-run adds FAMHOMEBASE_DIR to an old .env that lacked it" 'grep -q "^FAMHOMEBASE_DIR=" "$WORK/inst/.env"'
+check "re-run on an install that never chose a port keeps it on 8080 (it is not moved to the new default)" 'grep -q "^FAMHOMEBASE_PORT=8080\$" "$WORK/inst/.env" && grep -q "Keeping this install on port 8080" "$WORK/out.log" && grep -q "localhost:8080" "$WORK/out.log"'
 
 reset; run --dir "$WORK/inst" --no-start
 check "--no-start sets up but starts nothing" '[ -f "$WORK/inst/VERSION" ] && ! grep -q "^compose up" "$WORK/docker.log"'
@@ -71,7 +72,7 @@ reset; run --dir "$WORK/inst" --kiosk
 check "--kiosk writes the labwc autostart (chromium, wayland, keyring flag, waits for the dashboard)" 'grep -q "ozone-platform=wayland" "$WORK/home/.config/labwc/autostart" && grep -q "password-store=basic" "$WORK/home/.config/labwc/autostart" && grep -q "until curl" "$WORK/home/.config/labwc/autostart"'
 check "--kiosk turns on desktop autologin" 'grep -q "raspi-config nonint do_boot_behaviour B4" "$WORK/docker.log"'
 reset; mkdir -p "$WORK/home/.config/labwc"; echo "my old autostart" > "$WORK/home/.config/labwc/autostart"; run --dir "$WORK/inst" --kiosk
-check "--kiosk keeps a copy of an existing autostart" '[ "$(cat "$WORK/home/.config/labwc/autostart.bak")" = "my old autostart" ]'
+check "--kiosk keeps a copy of an existing autostart, and keeps its other lines" '[ "$(cat "$WORK/home/.config/labwc/autostart.bak")" = "my old autostart" ] && grep -q "my old autostart" "$WORK/home/.config/labwc/autostart" && grep -q "kiosk=1" "$WORK/home/.config/labwc/autostart"'
 reset; run --dir "$WORK/inst"
 check "no --kiosk: leaves the desktop alone" '[ ! -e "$WORK/home/.config/labwc/autostart" ] && ! grep -q raspi-config "$WORK/docker.log"'
 
@@ -97,8 +98,8 @@ reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst"
 check "re-running without --port keeps the port you chose" 'grep -q "^FAMHOMEBASE_PORT=9090\$" "$WORK/inst/.env" && grep -q "localhost:9090" "$WORK/out.log"'
 reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst" --port 80
 check "--port changes an existing choice, once (no duplicate line)" '[ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ] && grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env"'
-reset; run --dir "$WORK/inst"
-check "no --port: 8080, as before" 'grep -q "localhost:8080/?kiosk=1" "$WORK/out.log"'
+reset; run --dir "$WORK/inst" --port 80; run --dir "$WORK/inst"
+check "an install already on port 80 stays there on re-run" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && [ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ]'
 for bad in abc 0 70000 -1 ""; do
   reset; run --dir "$WORK/inst" --port "$bad"; rc=$?
   check "--port '$bad' is refused before anything is downloaded" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ]'
@@ -115,8 +116,26 @@ refresh() { rm -f "$WORK/rk.out"; env PATH="$rk/bin:$PATH" RK_OUT="$WORK/rk.out"
 printf 'FAMHOMEBASE_PORT=80\nAUTO_UPDATE=true\n' > "$rk/.env"; refresh
 check "refresh-kiosk.sh opens the port from .env" 'grep -q "http://localhost:80/?kiosk=1" "$WORK/rk.out"'
 rm -f "$rk/.env"; refresh
-check "refresh-kiosk.sh defaults to 8080 with no .env" 'grep -q "http://localhost:8080/?kiosk=1" "$WORK/rk.out"'
+check "refresh-kiosk.sh defaults to port 80 with no .env (the compose default)" 'grep -q "http://localhost:80/?kiosk=1" "$WORK/rk.out"'
 check "refresh-kiosk.sh keeps the Wayland and keyring flags" 'grep -q "ozone-platform=wayland" "$WORK/rk.out" && grep -q "password-store=basic" "$WORK/rk.out"'
+
+# ---- the installer corrects an autostart file that needs it
+OLDLINE="sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; exec chromium-browser --kiosk \"http://localhost:8080/?kiosk=1\"' &"
+mk_autostart() { mkdir -p "$WORK/home/.config/labwc"; printf '%s\n%s\n%s\n' "# my own thing" "$1" "wlr-randr --output HDMI-A-1 --transform 90" > "$WORK/home/.config/labwc/autostart"; }
+reset; mk_autostart "$OLDLINE"; run --dir "$WORK/inst" --port 80
+A="$WORK/home/.config/labwc/autostart"
+check "autostart: the stale kiosk line is corrected (port and flags) without --kiosk" 'grep -q "localhost/?kiosk=1" "$A" && ! grep -q "8080" "$A" && grep -q "ozone-platform=wayland" "$A" && grep -q "password-store=basic" "$A" && ! grep -q "__URL__" "$A"'
+check "autostart: the owner's other lines are untouched" 'grep -q "^# my own thing\$" "$A" && grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$A"'
+check "autostart: the old file is kept as autostart.bak, and the user is told to restart the display" 'grep -q "8080" "$A.bak" && grep -q "Corrected the kiosk line" "$WORK/out.log" && grep -q "refresh-kiosk.sh" "$WORK/out.log"'
+check "autostart: exactly one kiosk line" '[ "$(grep -c "kiosk=1" "$A")" = 1 ]'
+rm -f "$A.bak"; run --dir "$WORK/inst" --port 80
+check "autostart: already correct means no change, no new backup, no message" '[ ! -e "$A.bak" ] && ! grep -q "Corrected the kiosk line" "$WORK/out.log"'
+reset; mkdir -p "$WORK/home/.config/labwc"; printf 'wlr-randr --output HDMI-A-1 --transform 90\n' > "$WORK/home/.config/labwc/autostart"; run --dir "$WORK/inst"
+check "autostart: a file with no kiosk line is left alone unless --kiosk is given" '[ "$(cat "$WORK/home/.config/labwc/autostart")" = "wlr-randr --output HDMI-A-1 --transform 90" ] && [ ! -e "$WORK/home/.config/labwc/autostart.bak" ]'
+reset; mk_autostart "$OLDLINE"; run --dir "$WORK/inst" --port 8081 --kiosk
+check "autostart: --kiosk on a file that already has the line corrects it rather than adding a second" '[ "$(grep -c "kiosk=1" "$WORK/home/.config/labwc/autostart")" = 1 ] && grep -q "localhost:8081/?kiosk=1" "$WORK/home/.config/labwc/autostart"'
+reset; run --dir "$WORK/inst"
+check "autostart: no file and no --kiosk: none is created" '[ ! -e "$WORK/home/.config/labwc/autostart" ]'
 
 echo; echo "$n checks, $fail failed"
 [ "$fail" -eq 0 ]

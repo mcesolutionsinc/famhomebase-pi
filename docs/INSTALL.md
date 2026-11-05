@@ -48,11 +48,13 @@ One command downloads the latest release, creates the encryption key, and starts
 curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sh
 ```
 
-It installs into `~/famhomebase-pi`. Options go after `sh -s --`, for example `--port 80` serves it at plain `http://<address>/`
-(the default is port 8080, and the port must be free on this machine), `... | sh -s -- --kiosk` also sets the Pi up to
+It installs into `~/famhomebase-pi`. Options go after `sh -s --`, for example `--port 8080` serves it on that port instead
+(the default is port 80, so the address is plain `http://<address>/`; the port must be free on this machine, and `--port 8080` is a common alternative), `... | sh -s -- --kiosk` also sets the Pi up to
 show the dashboard full-screen at boot (section 5 does the same by hand), `--dir /some/folder` installs elsewhere, and
 `--version 0.1.5` picks a release. Running it again on an existing install updates it and leaves your settings, accounts
-and key alone.
+and key alone. It also **corrects the kiosk line in your autostart file** if it's out of date (for example after a port
+change): the right address and current flags go in, your other lines in that file stay, and the old file is saved as
+`autostart.bak`. Run `~/famhomebase-pi/scripts/refresh-kiosk.sh` afterwards to restart the display with it.
 
 > **Back up `~/famhomebase-pi/secrets/dashboard.key`, separately from `./data`.** It encrypts your connected-account
 > tokens. If you lose it you keep your layout and settings but have to reconnect your calendars.
@@ -84,10 +86,11 @@ update it with `git pull && docker compose pull && docker compose up -d`.
 
 ## 4. Set it up from your laptop
 
-> The addresses in this guide use port 8080, the default. If you chose another with `--port`, or set `FAMHOMEBASE_PORT` in `~/famhomebase-pi/.env`
-> (then `docker compose up -d`), use yours instead; for port 80 leave the `:8080` off. The kiosk scripts follow the setting.
+> The addresses in this guide use port 80, the default, so they have no port number. If you chose another with `--port`, or set `FAMHOMEBASE_PORT` in
+> `~/famhomebase-pi/.env` (then `docker compose up -d`), add it: `http://<pi-address>:8080/`. An install made before 80 became the default stays on 8080.
+> The kiosk scripts follow the setting.
 
-Open `http://<pi-address>:8080/` on a laptop on the same network (find the address with `hostname -I` on the Pi).
+Open `http://<pi-address>/` on a laptop on the same network (find the address with `hostname -I` on the Pi).
 Without `?kiosk=1` you get the full interface: customize the layout, connect calendars, change settings. Changes are
 saved on the Pi, so the display picks them up.
 
@@ -104,18 +107,18 @@ Pi's own screen — which sits on the subscription page until then — unlocks b
 ### Connecting Google Calendar
 
 Google sign-in needs a *secure* page (HTTPS, or `localhost`), and Google only allows sign-in to return to `localhost`.
-Opened from `http://<pi-address>:8080/`, the Connect buttons stay greyed out and the page explains why. The way around
+Opened from `http://<pi-address>/`, the Connect buttons stay greyed out and the page explains why. The way around
 it needs only SSH: forward the Pi's port to your laptop, then browse to your laptop's own `localhost`.
 
 On your **laptop**, in a terminal:
 
 ```bash
-ssh -L 8080:localhost:8080 <user>@<pi-address>
+ssh -L 8080:localhost:80 <user>@<pi-address>
 ```
 
 Leave that open, then browse to **`http://localhost:8080/`** on the laptop → Accounts → Connect Google, and leave
 every permission box ticked. If your laptop already uses port 8080, use another local port, e.g.
-`ssh -L 9090:localhost:8080 …` and `http://localhost:9090/`. You only need the tunnel while connecting an account.
+`ssh -L 9090:localhost:80 …` and `http://localhost:9090/`. (If your Pi is on port 8080, forward to that: `-L 8080:localhost:8080`.) You only need the tunnel while connecting an account.
 
 ## 5. Show it on the Pi's screen
 
@@ -142,7 +145,7 @@ On Raspberry Pi OS based on Debian 13 ("trixie") it is `chromium`; older release
    mkdir -p ~/.config/labwc
    cat > ~/.config/labwc/autostart <<'EOF'
    # Wait for the dashboard to be up, then open it full-screen on the Pi's display.
-   sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost:8080/?kiosk=1"' &
+   sh -c 'until curl -sf http://localhost/ >/dev/null; do sleep 2; done; B=$(command -v chromium || command -v chromium-browser); exec "$B" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost/?kiosk=1"' &
    EOF
    ```
 
@@ -162,7 +165,7 @@ A command that fails in the autostart file fails silently, so if nothing appears
 pointing it at the Pi's screen:
 
 ```bash
-XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 chromium --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost:8080/?kiosk=1" > /tmp/chromium.log 2>&1 &
+XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 chromium --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "http://localhost/?kiosk=1" > /tmp/chromium.log 2>&1 &
 sleep 6; head /tmp/chromium.log
 ```
 
