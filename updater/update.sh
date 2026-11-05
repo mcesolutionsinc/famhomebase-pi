@@ -29,6 +29,11 @@ RETRY_AFTER_FAILURE="${RETRY_AFTER_FAILURE_SECONDS:-86400}"
 DOCKER="${DOCKER:-docker}"
 WGET="${WGET:-wget}"
 
+# This script deletes and replaces folders under $DIR; never let that be empty or the filesystem root.
+case "$DIR" in
+  ""|"/") echo "[updater] FAMHOMEBASE_DIR must be the full path of the install folder (got '$DIR'); refusing to run" >&2; exit 1 ;;
+esac
+
 log() { echo "[updater] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
 # $1 > $2, both x.y.z
@@ -81,7 +86,7 @@ wait_healthy() {
 restore_from() { # $1 = rollback dir
   for f in docker-compose.yml VERSION README.md LICENSE; do [ -f "$1/$f" ] && cp -f "$1/$f" "$DIR/$f"; done
   for d in scripts updater docs; do
-    if [ -d "$1/$d" ]; then rm -rf "$DIR/$d"; cp -r "$1/$d" "$DIR/$d"; fi
+    if [ -d "$1/$d" ]; then rm -rf "${DIR:?}/$d"; cp -r "$1/$d" "$DIR/$d"; fi
   done
 }
 
@@ -118,7 +123,7 @@ apply_update() { # $1 = new version (x.y.z)
   fi
 
   rollback="$DIR/.rollback"
-  rm -rf "$rollback"; mkdir -p "$rollback"
+  rm -rf "${rollback:?}"; mkdir -p "$rollback"
   for f in docker-compose.yml VERSION README.md LICENSE; do [ -f "$DIR/$f" ] && cp -f "$DIR/$f" "$rollback/$f"; done
   for d in scripts updater docs; do [ -d "$DIR/$d" ] && cp -r "$DIR/$d" "$rollback/$d"; done
 

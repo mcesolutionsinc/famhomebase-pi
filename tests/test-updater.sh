@@ -127,5 +127,12 @@ check "a tag that is not vX.Y.Z is ignored" 'grep -q "could not read the latest 
 fresh 0.1.5; publish 0.1.4; run
 check "never downgrades" 'grep -q "up to date" "$WORK/out.log" && [ "$(cat "$WORK/inst/VERSION")" = 0.1.5 ]'
 
+# ---- refuses to run without a real install folder
+fresh 0.1.4; publish 0.1.4
+( cd "$WORK/inst" && env FAMHOMEBASE_DIR="" PATH="$WORK/bin:$PATH" FIXTURES="$FIXTURES" DOCKER_LOG="$WORK/docker.log" GITHUB_API=https://api.github.com sh "$SCRIPT" --once > "$WORK/out.log" 2>&1 )
+check "an unset/empty FAMHOMEBASE_DIR means the current folder (the container's working dir)" 'grep -q "up to date (0.1.4)" "$WORK/out.log"'
+FAMHOMEBASE_DIR=/ PATH="$WORK/bin:$PATH" FAMHOMEBASE_UPDATER_COPY=1 sh "$SCRIPT" --once > "$WORK/out.log" 2>&1; rc=$?
+check "the filesystem root is refused" '[ $rc -ne 0 ] && grep -q "must be the full path" "$WORK/out.log"'
+
 echo; echo "$n checks, $fail failed"
 [ "$fail" -eq 0 ]
