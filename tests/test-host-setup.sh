@@ -26,7 +26,7 @@ stub systemctl 'echo "systemctl $*" >> "$LOG"; [ "${KIOSK_ACTIVE:-}" != 1 ] && [
 stub pkill 'echo "pkill $*" >> "$LOG"'
 for t in wlr-randr wlopm; do stub $t 'exit 0'; done # the display tools are present unless a test removes them
 
-run() { : > "$LOG"; env PATH="$BIN:/usr/bin:/bin" HOME="$HOME_DIR" LOG="$LOG" "$@" > "$WORK/out" 2>&1; }
+run() { : > "$LOG"; env PATH="$BIN:/usr/bin:/bin" HOME="$HOME_DIR" LOG="$LOG" FAMHOMEBASE_NM_CONF_DIR="$WORK/none" FAMHOMEBASE_NET_DIR="$WORK/none" "$@" > "$WORK/out" 2>&1; }
 setup() { run sh "$INST/scripts/host-setup.sh" "$@"; }
 
 setup --update
@@ -69,6 +69,20 @@ check "run by hand (--kiosk), it uses plain sudo so it can ask for the password"
 for t in wlr-randr wlopm; do stub $t 'exit 0'; done
 setup --update
 check "tools already there: apt is not run" '! grep -q "apt-get" "$LOG"'
+
+# Wi-Fi power saving
+NMD="$WORK/nm"; NET="$WORK/net"; mkdir -p "$NMD" "$NET/wlan0"
+stub sudo 'echo "sudo $*" >> "$LOG"; [ "${SUDO_FAILS:-}" = 1 ] && exit 1; [ "$1" = -n ] && shift; exec "$@"'
+setup_wifi() { run env FAMHOMEBASE_NM_CONF_DIR="$NMD" FAMHOMEBASE_NET_DIR="$NET" "$@" sh "$INST/scripts/host-setup.sh" --update; }
+setup_wifi
+check "a Pi on Wi-Fi: power saving is turned off for good (written with sudo -n after an update)" 'grep -q "^wifi.powersave = 2\$" "$NMD/wifi-powersave.conf" && grep -q "^\[connection\]\$" "$NMD/wifi-powersave.conf" && grep -q "^sudo -n sh -c" "$LOG"'
+check "...and it does not restart NetworkManager in the middle of an update" '! grep -qi "networkmanager" "$LOG"'
+printf '[connection]\nwifi.powersave = 3\n' > "$NMD/wifi-powersave.conf"; setup_wifi
+check "a setting of the owner's own is never overwritten" 'grep -q "= 3" "$NMD/wifi-powersave.conf" && ! grep -q "sudo -n sh -c" "$LOG"'
+rm "$NMD/wifi-powersave.conf"; rmdir "$NET/wlan0"; setup_wifi
+check "no Wi-Fi interface (Ethernet only): left alone" '[ ! -e "$NMD/wifi-powersave.conf" ]'
+mkdir "$NET/wlan0"; setup_wifi SUDO_FAILS=1
+check "if sudo wants a password: carries on and says what to run" '[ ! -e "$NMD/wifi-powersave.conf" ] && grep -q "could not — run: sudo sh -c" "$WORK/out" && grep -q "daemon-reload" "$LOG"'
 
 # an old install that opened the dashboard from the labwc autostart
 rm -rf "$UNITS"; mkdir -p "$HOME_DIR/.config/labwc"

@@ -58,6 +58,21 @@ if [ -n "$missing" ]; then
   $sudo_cmd apt-get install -y $missing >/dev/null 2>&1 || say "  (could not install them — run: sudo apt install$missing)"
 fi
 
+# Wi-Fi power saving, which the Pi's wireless chip has on by default, makes the connection drop and lag — the dashboard then loads slowly
+# or not at all. Turn it off for a Pi on Wi-Fi. Written once and never overwritten, so a setting of your own is kept; it takes effect
+# when the Pi next reconnects or reboots (restarting NetworkManager now would drop the connection in the middle of an update).
+nm_dir=${FAMHOMEBASE_NM_CONF_DIR:-/etc/NetworkManager/conf.d} # (the tests point these two at a scratch folder)
+net_dir=${FAMHOMEBASE_NET_DIR:-/sys/class/net}
+nm_conf="$nm_dir/wifi-powersave.conf"
+if [ -d "$nm_dir" ] && [ -e "$net_dir/wlan0" ] && [ ! -e "$nm_conf" ]; then
+  say "Turning off Wi-Fi power saving (it makes the Pi's connection lag and drop)..."
+  if [ "$UPDATE" -eq 1 ]; then sudo_cmd="sudo -n"; else sudo_cmd="sudo"; fi
+  # shellcheck disable=SC2016 # the quotes are for the inner shell
+  $sudo_cmd sh -c 'printf "[connection]\nwifi.powersave = 2\n" > "$1"' sh "$nm_conf" >/dev/null 2>&1 \
+    && say "  Done; it applies after the next reboot." \
+    || say "  (could not — run: sudo sh -c 'printf \"[connection]\\nwifi.powersave = 2\\n\" > $nm_conf')"
+fi
+
 mkdir -p "$unit_dir"
 write_unit() { # name, then the file's text on stdin; reports whether it changed
   cat > "$unit_dir/$1.new"
