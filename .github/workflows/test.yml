@@ -11,13 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint the shell scripts
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/screen.sh scripts/generate-key.sh updater/update.sh
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/screen.sh scripts/host-setup.sh scripts/generate-key.sh updater/update.sh
       - name: Test the updater
         run: sh tests/test-updater.sh
       - name: Test the installer
         run: sh tests/test-install.sh
       - name: Test the kiosk launcher
         run: sh tests/test-kiosk.sh
+      - name: Test the host-side update step
+        run: sh tests/test-host-setup.sh
       - name: Test the night-mode screen switch
         run: sh tests/test-screen.sh
       - name: The compose file parses

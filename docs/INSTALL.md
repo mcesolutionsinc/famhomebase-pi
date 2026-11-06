@@ -193,12 +193,20 @@ and `.env` are never touched. The dashboard blinks for about a minute while it r
 admin screens afterwards you'll be asked for your PIN again. Reload the Pi's browser to pick up the new page
 (`systemctl --user restart famhomebase-kiosk`, or `sudo reboot`) — newer versions of the display reload themselves.
 
+**Two stages.** The updater is a container, so it can replace files and images but can't change the Pi itself. A small
+systemd unit on the Pi (`famhomebase-host.path`, installed by the installer on a kiosk) notices when `VERSION` changes and
+runs `scripts/host-setup.sh --update` as you: it keeps the kiosk service up to date, installs the display tools if they're
+missing (only when `sudo` needs no password — otherwise it tells you the command), and restarts the kiosk when its scripts
+changed. An update that doesn't touch the display doesn't restart it.
+
 See what it's doing:
 
 ```bash
 cd ~/famhomebase-pi
 docker compose logs updater --tail 20
 cat VERSION                 # the release you're on
+systemctl --user status famhomebase-host.path     # the Pi-side step (a kiosk only)
+journalctl --user -u famhomebase-host.service     # what it did after the last update
 ```
 
 **Turn it off.** Set `AUTO_UPDATE=false` in `~/famhomebase-pi/.env` and run `docker compose up -d`. The updater then only logs that

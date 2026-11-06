@@ -39,7 +39,7 @@ for v in 0.1.5 0.1.6; do
   echo "services: {}" > "$pay/docker-compose.yml"; echo "$v" > "$pay/VERSION"
   printf 'FAMHOMEBASE_DIR=/home/pi/famhomebase-pi\nFAMHOMEBASE_PORT=80\nAUTO_UPDATE=true\n' > "$pay/.env.example"
   printf '#!/bin/sh\nmkdir -p secrets && echo KEY > secrets/dashboard.key\n' > "$pay/scripts/generate-key.sh"
-  cp "$HERE/../scripts/fix-autostart.sh" "$pay/scripts/fix-autostart.sh" # the real one: the installer calls it
+  cp "$HERE/../scripts/host-setup.sh" "$pay/scripts/host-setup.sh" # the real one: the installer calls it
   d="$FIXTURES/$REPO/releases/download/v$v"; mkdir -p "$d"
   tar -czf "$d/famhomebase-pi-$v.tar.gz" -C "$pay" .
   echo "$(sha256sum "$d/famhomebase-pi-$v.tar.gz" | cut -d' ' -f1)  famhomebase-pi-$v.tar.gz" > "$d/famhomebase-pi-$v.tar.gz.sha256"

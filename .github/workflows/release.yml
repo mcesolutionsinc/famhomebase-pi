@@ -24,6 +24,7 @@ jobs:
           sh tests/test-install.sh
           sh tests/test-kiosk.sh
           sh tests/test-screen.sh
+          sh tests/test-host-setup.sh
 
       - name: Check the images this release pins exist
         run: |

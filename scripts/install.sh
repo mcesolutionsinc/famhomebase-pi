@@ -124,63 +124,16 @@ if [ -n "$ROTATE" ]; then
   fi
 fi
 
-# The kiosk display (Raspberry Pi OS desktop, labwc): a systemd user service that runs scripts/kiosk.sh. The script reads the
-# port and rotation from .env and an update replaces it, so nothing here needs correcting again. An older install opened the
-# dashboard from a line in ~/.config/labwc/autostart; if that line is there, this Pi is a kiosk, so move it over to the service.
-autostart="$HOME/.config/labwc/autostart"
-legacy=0
-{ [ -f "$autostart" ] && grep -q 'kiosk=1' "$autostart"; } && legacy=1
-
-if [ "$KIOSK" -eq 1 ] || [ "$legacy" -eq 1 ]; then
-  if [ "$KIOSK" -eq 1 ]; then
-    say "Setting this Pi to show the dashboard full-screen at boot..."
-    if command -v raspi-config >/dev/null 2>&1; then
-      sudo raspi-config nonint do_boot_behaviour B4 || say "  (could not turn on desktop autologin — do it in raspi-config: System Options > Boot / Auto Login)"
-    else
-      say "  (raspi-config not found — make sure this machine logs into its desktop automatically)"
-    fi
-    # The display tools the kiosk uses: wlr-randr rotates the screen, wlopm turns it off at night (Settings → Night mode).
-    missing=""
-    for tool in wlr-randr wlopm; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"; done
-    if [ -n "$missing" ]; then
-      say "Installing the screen tools:$missing"
-      # shellcheck disable=SC2086 # a list of package names
-      sudo apt-get install -y $missing >/dev/null 2>&1 || say "  (could not install them — run: sudo apt install$missing)"
-    fi
-  fi
-
-  unit_dir="$HOME/.config/systemd/user"
-  mkdir -p "$unit_dir"
-  cat > "$unit_dir/famhomebase-kiosk.service" <<UNIT_EOF
-[Unit]
-Description=FamHomeBase kiosk display
-
-[Service]
-ExecStart=$DIR/scripts/kiosk.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-UNIT_EOF
-
-  if [ "$legacy" -eq 1 ]; then
-    cp -f "$autostart" "$autostart.bak"
-    awk '/kiosk=1/ || /^# Wait for the dashboard to be up, then open it full-screen/ { next } { print }' "$autostart.bak" > "$autostart.new" && cat "$autostart.new" > "$autostart"
-    rm -f "$autostart.new"
-    say "Moved the kiosk from $autostart to a systemd service (the old file is saved as autostart.bak; your other lines in it stay)."
-    pkill -x chromium >/dev/null 2>&1 || true # the old kiosk's browser: the service starts its own
-  fi
-
-  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-  export XDG_RUNTIME_DIR
-  if systemctl --user daemon-reload >/dev/null 2>&1; then
-    if [ "$START" -eq 1 ]; then systemctl --user enable --now famhomebase-kiosk.service >/dev/null 2>&1 && say "  The kiosk service is running; restart it any time with: systemctl --user restart famhomebase-kiosk"
-    else systemctl --user enable famhomebase-kiosk.service >/dev/null 2>&1; fi
-  else
-    say "  Could not reach your user's systemd (normal when run from a session with no desktop login yet). It starts at the next login; or run: systemctl --user enable --now famhomebase-kiosk.service"
-  fi
-elif [ -n "$ROTATE" ] && systemctl --user is-active famhomebase-kiosk.service >/dev/null 2>&1; then
+# The host side — the kiosk display (Raspberry Pi OS desktop, labwc), the display tools, and the unit that re-applies all of this
+# after each update — is scripts/host-setup.sh. The updater (a container) can't touch the Pi itself, so systemd runs the same script
+# on the Pi whenever an update changes VERSION. An older install opened the dashboard from a line in ~/.config/labwc/autostart; the
+# script moves that over to the service too.
+host_args=""
+[ "$KIOSK" -eq 1 ] && host_args="$host_args --kiosk"
+[ "$START" -eq 0 ] && host_args="$host_args --no-start"
+# shellcheck disable=SC2086 # a short list of flags
+(cd "$DIR" && sh ./scripts/host-setup.sh $host_args)
+if [ -n "$ROTATE" ] && [ "$KIOSK" -eq 0 ] && systemctl --user is-active famhomebase-kiosk.service >/dev/null 2>&1; then
   systemctl --user restart famhomebase-kiosk.service >/dev/null 2>&1 || true
 fi
 
