@@ -139,6 +139,14 @@ if [ "$KIOSK" -eq 1 ] || [ "$legacy" -eq 1 ]; then
     else
       say "  (raspi-config not found — make sure this machine logs into its desktop automatically)"
     fi
+    # The display tools the kiosk uses: wlr-randr rotates the screen, wlopm turns it off at night (Settings → Night mode).
+    missing=""
+    for tool in wlr-randr wlopm; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"; done
+    if [ -n "$missing" ]; then
+      say "Installing the screen tools:$missing"
+      # shellcheck disable=SC2086 # a list of package names
+      sudo apt-get install -y $missing >/dev/null 2>&1 || say "  (could not install them — run: sudo apt install$missing)"
+    fi
   fi
 
   unit_dir="$HOME/.config/systemd/user"

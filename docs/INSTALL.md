@@ -152,7 +152,7 @@ curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/dow
 ```
 
 or edit `~/famhomebase-pi/.env` yourself (`FAMHOMEBASE_ROTATE=90`, and `FAMHOMEBASE_OUTPUT=HDMI-A-1` if you have more than one
-display) and run `systemctl --user restart famhomebase-kiosk`. It needs `wlr-randr` (`sudo apt install wlr-randr`). `--rotate normal` puts it back. Then
+display) and run `systemctl --user restart famhomebase-kiosk`. The installer adds `wlr-randr` for you with `--kiosk` (or `sudo apt install wlr-randr`). `--rotate normal` puts it back. Then
 set the screen's orientation in the dashboard under Settings. A touchscreen may need its own rotation.
 
 <details>
