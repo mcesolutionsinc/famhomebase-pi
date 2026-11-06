@@ -67,5 +67,14 @@ check "older Raspberry Pi OS: falls back to chromium-browser" 'grep -q "^chromiu
 rm -f "$BIN/chromium-browser"; run; rc=$?
 check "no browser installed: says so" '[ $rc -ne 0 ] && grep -q "chromium is not installed" "$WORK/out"'
 
+# night mode's screen switch
+stub chromium 'echo "chromium $*" >> "$LOG"'
+printf '#!/bin/sh\necho "screen.sh started" >> "$LOG"\n' > "$T/scripts/screen.sh"; chmod +x "$T/scripts/screen.sh"
+run
+for _ in 1 2 3 4 5 6 7 8 9 10; do grep -q '^screen.sh started' "$LOG" && break; /bin/sleep 0.2; done # it runs in the background
+check "the night-mode screen switch is started beside the browser" 'grep -q "^screen.sh started" "$LOG" && grep -q "^chromium" "$LOG"'
+rm "$T/scripts/screen.sh"; run
+check "...and a missing screen.sh does not stop the display" 'grep -q "^chromium" "$LOG"'
+
 echo; echo "$n checks, $fail failed"
 [ "$fail" -eq 0 ]

@@ -40,6 +40,11 @@ never touched. Tell us in an issue with `docker compose logs --tail 100`.
 **The display shows the subscription page** — subscribe from your laptop; the display unlocks by itself within about
 15 seconds. If it doesn't, check the laptop and the Pi are using the same address, and reload the Pi's browser.
 
+**The screen doesn't turn off at night** — turn on **Night mode** in Settings → Display and set **At night, the Pi's
+screen** to **Turns off** (the Pi's own display only). The Pi needs `wlopm`: `sudo apt install wlopm`. Some TVs ignore
+the signal and just show "No signal" or stay lit; check the TV's own power-saving settings. The times are the same ones
+night mode dims between, in your timezone. Restart the display after installing: `systemctl --user restart famhomebase-kiosk`.
+
 ## Setting it up
 
 **The Connect Google button is greyed out** — you opened the page over plain HTTP. Use the SSH tunnel in the install
