@@ -11,7 +11,7 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 T="$WORK/inst"; BIN="$WORK/bin"; RT="$WORK/run"
 mkdir -p "$T/scripts" "$BIN" "$RT" "$WORK/tools"
 # Only the system tools the script really needs, so a chromium or wlr-randr that happens to be installed on this machine can't leak in.
-for tool in sed tail awk dirname mkdir; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
+for tool in sed tail awk dirname mkdir rm; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
 cp "$HERE/../scripts/kiosk.sh" "$T/scripts/kiosk.sh"
 LOG="$WORK/log"
 
@@ -44,6 +44,12 @@ check "the last setting wins when .env repeats one" 'grep -q "localhost:8081/?ki
 
 printf 'FAMHOMEBASE_PROFILE=%s/elsewhere\n' "$WORK" > "$T/.env"; run
 check "the profile folder comes from .env" 'grep -q -- "--user-data-dir=$WORK/elsewhere " "$LOG" && [ -d "$WORK/elsewhere" ]'
+mkdir -p "$WORK/home/.local/share/famhomebase-kiosk"; touch "$WORK/home/.local/share/famhomebase-kiosk/SingletonLock" "$WORK/home/.local/share/famhomebase-kiosk/SingletonCookie" "$WORK/home/.local/share/famhomebase-kiosk/Keep"; rm -f "$T/.env"; run
+check "stale Chromium lock files from a power cut are cleared, other profile files are kept" '[ ! -e "$WORK/home/.local/share/famhomebase-kiosk/SingletonLock" ] && [ ! -e "$WORK/home/.local/share/famhomebase-kiosk/SingletonCookie" ] && [ -e "$WORK/home/.local/share/famhomebase-kiosk/Keep" ]'
+env -u HOME PATH="$BIN:$WORK/tools" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" /bin/sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1; rc=$?
+check "no HOME and no profile setting: says so rather than keeping the profile somewhere that is wiped" '[ $rc -ne 0 ] && grep -q "HOME is not set" "$WORK/out"'
+printf 'FAMHOMEBASE_PROFILE=relative/x\n' > "$T/.env"; run; rc=$?
+check "a profile path that is not absolute is refused" '[ $rc -ne 0 ] && grep -q "must be a full path" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
 printf 'FAMHOMEBASE_PROFILE=/proc/nope/x\n' > "$T/.env"; run; rc=$?
 check "a profile folder that cannot be made: says so, does not open the browser" '[ $rc -ne 0 ] && grep -q "cannot make the profile folder" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
 

@@ -20,7 +20,15 @@ case "$PORT" in ''|*[!0-9]*) PORT=80 ;; esac
 ROTATE=$(getenv FAMHOMEBASE_ROTATE)
 OUTPUT=$(getenv FAMHOMEBASE_OUTPUT)
 PROFILE=$(getenv FAMHOMEBASE_PROFILE)
-[ -n "$PROFILE" ] || PROFILE="${HOME:-/tmp}/.local/share/famhomebase-kiosk"
+if [ -z "$PROFILE" ]; then
+  # no HOME would mean a folder that does not last (/tmp is wiped at boot) and a display that pairs again after every restart
+  [ -n "${HOME:-}" ] || { echo "kiosk: HOME is not set, so there is nowhere to keep the saved profile (set FAMHOMEBASE_PROFILE in .env)" >&2; exit 1; }
+  PROFILE="$HOME/.local/share/famhomebase-kiosk"
+fi
+case "$PROFILE" in
+  /*) ;;
+  *) echo "kiosk: FAMHOMEBASE_PROFILE must be a full path starting with / (got '$PROFILE')" >&2; exit 1 ;;
+esac
 if [ "$PORT" = 80 ]; then URL=http://localhost; else URL="http://localhost:$PORT"; fi
 
 XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
@@ -59,6 +67,9 @@ until curl -sf "$URL/" >/dev/null; do sleep 2; done
 
 BROWSER=$(command -v chromium || command -v chromium-browser) || { echo "kiosk: chromium is not installed" >&2; exit 1; }
 mkdir -p "$PROFILE" || { echo "kiosk: cannot make the profile folder $PROFILE" >&2; exit 1; }
+# After a power cut Chromium leaves its lock files behind; if the process id in one has since been given to something else it
+# refuses to start on a screen nobody can click. This script is the only thing that opens this profile, so the locks are stale.
+rm -f "$PROFILE/SingletonLock" "$PROFILE/SingletonSocket" "$PROFILE/SingletonCookie"
 # --user-data-dir: a saved profile of its own, apart from anyone's everyday Chromium. --hide-crash-restore-bubble: after a power cut
 # Chromium would otherwise ask "Restore pages?" on a screen nobody can click.
 exec "$BROWSER" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic --user-data-dir="$PROFILE" --hide-crash-restore-bubble "$URL/?kiosk=1"

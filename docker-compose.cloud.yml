@@ -2,7 +2,7 @@
 # the running Pi line (docker-compose.yml, the famhomebase-pi images); this is a separate project with its own image name.
 # See docs/CLOUD.md. Not for a Pi's auto-updater: that follows the other compose file and the v* releases only.
 #
-#   FAMHOMEBASE_CLOUD_IMAGE=famhomebase-pi-cloud:local docker compose -f docker-compose.cloud.yml up -d     # an image you built
+#   FAMHOMEBASE_CLOUD_IMAGE=famhomebase-pi-cloud FAMHOMEBASE_CLOUD_VERSION=local docker compose -f docker-compose.cloud.yml up -d     # an image you built
 #   FAMHOMEBASE_CLOUD_VERSION=0.1.0 docker compose -f docker-compose.cloud.yml up -d                       # a published one
 #   open http://localhost:8080/        (add ?kiosk=1 to hide the mouse pointer, as on the wall)
 
@@ -11,7 +11,7 @@ name: famhomebase-cloud
 services:
   display:
     # No `latest` on purpose: a version has to be named, so a display never changes under you.
-    image: ${FAMHOMEBASE_CLOUD_IMAGE:-ghcr.io/mcesolutionsinc/famhomebase-pi-cloud:${FAMHOMEBASE_CLOUD_VERSION:?set FAMHOMEBASE_CLOUD_VERSION (for example 0.1.0) or FAMHOMEBASE_CLOUD_IMAGE}}
+    image: ${FAMHOMEBASE_CLOUD_IMAGE:-ghcr.io/mcesolutionsinc/famhomebase-pi-cloud}:${FAMHOMEBASE_CLOUD_VERSION:?set FAMHOMEBASE_CLOUD_VERSION, for example 0.1.0 (or local, with FAMHOMEBASE_CLOUD_IMAGE=famhomebase-pi-cloud for an image you built)}
     ports:
       - "${FAMHOMEBASE_PORT:-8080}:8080"
     environment:
@@ -21,6 +21,7 @@ services:
       - FAMHOMEBASE_ENV=${FAMHOMEBASE_ENV:-prod}
     restart: unless-stopped
     healthcheck:
+      # the page's own server is up. (Whether the cloud answers is shown on the screen itself: "Cannot reach FamHomeBase".)
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/runtime-config.json"]
       interval: 30s
       timeout: 5s
