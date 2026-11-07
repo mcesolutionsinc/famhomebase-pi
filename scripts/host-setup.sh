@@ -49,7 +49,7 @@ fi
 
 # The display tool the kiosk uses: wlr-randr rotates the screen.
 missing=""
-for tool in wlr-randr; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"; done
+command -v wlr-randr >/dev/null 2>&1 || missing=" wlr-randr"
 if [ -n "$missing" ]; then
   say "Installing the screen rotation tool:$missing"
   # After an update there is nobody to type a password: sudo -n only succeeds when sudo needs none.
