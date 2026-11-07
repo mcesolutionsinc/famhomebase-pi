@@ -13,7 +13,7 @@ INST="$WORK/inst"; BIN="$WORK/bin"; HOME_DIR="$WORK/home"; LOG="$WORK/log"
 mkdir -p "$INST/scripts" "$BIN" "$HOME_DIR"
 cp "$HERE/../scripts/host-setup.sh" "$INST/scripts/"
 echo 0.1.12 > "$INST/VERSION"
-echo '#!/bin/sh' > "$INST/scripts/kiosk.sh"; echo '#!/bin/sh' > "$INST/scripts/screen.sh"
+echo '#!/bin/sh' > "$INST/scripts/kiosk.sh"
 UNITS="$HOME_DIR/.config/systemd/user"
 
 stub() { printf '#!/bin/sh\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }
@@ -24,7 +24,7 @@ stub raspi-config 'echo "raspi-config $*" >> "$LOG"'
 stub id 'echo 1000'
 stub systemctl 'echo "systemctl $*" >> "$LOG"; [ "${KIOSK_ACTIVE:-}" != 1 ] && [ "$2" = is-active ] && exit 3; exit 0'
 stub pkill 'echo "pkill $*" >> "$LOG"'
-for t in wlr-randr wlopm; do stub $t 'exit 0'; done # the display tools are present unless a test removes them
+stub wlr-randr 'exit 0' # the rotation tool is present unless a test removes it
 
 run() { : > "$LOG"; env PATH="$BIN:/usr/bin:/bin" HOME="$HOME_DIR" LOG="$LOG" FAMHOMEBASE_NM_CONF_DIR="$WORK/none" FAMHOMEBASE_NET_DIR="$WORK/none" "$@" > "$WORK/out" 2>&1; }
 setup() { run sh "$INST/scripts/host-setup.sh" "$@"; }
@@ -51,24 +51,20 @@ setup --update
 check "an update that changed kiosk.sh restarts the kiosk, once" '[ "$(grep -c "restart famhomebase-kiosk" "$LOG")" -eq 1 ] && grep -q "Restarted the kiosk" "$WORK/out"'
 setup --update
 check "...and not again on the next run" '! grep -q "restart famhomebase-kiosk" "$LOG"'
-echo '# a new screen script' >> "$INST/scripts/screen.sh"
-setup --update
-check "an update that changed screen.sh restarts it too" 'grep -q "restart famhomebase-kiosk" "$LOG"'
-
 setup --kiosk --no-start
 check "--no-start enables but neither starts nor restarts anything" '! grep -q "enable --now\|restart\|start famhomebase" "$LOG"'
 
 # the display tools
-rm "$BIN/wlopm" "$BIN/wlr-randr"
+rm "$BIN/wlr-randr"
 setup --update
-check "after an update, missing display tools are installed with sudo -n (no password prompt, nobody is there to type one)" 'grep -q "^sudo -n apt-get install -y wlr-randr wlopm\$" "$LOG"'
+check "after an update, a missing rotation tool is installed with sudo -n (no password prompt, nobody is there to type one)" 'grep -q "^sudo -n apt-get install -y wlr-randr\$" "$LOG"'
 run env SUDO_FAILS=1 sh "$INST/scripts/host-setup.sh" --update
-check "if sudo wants a password: carries on and says what to run" '[ $? -eq 0 ] && grep -q "could not install them — run: sudo apt install wlr-randr wlopm" "$WORK/out" && grep -q "daemon-reload" "$LOG"'
+check "if sudo wants a password: carries on and says what to run" '[ $? -eq 0 ] && grep -q "could not install it — run: sudo apt install wlr-randr" "$WORK/out" && grep -q "daemon-reload" "$LOG"'
 setup --kiosk
-check "run by hand (--kiosk), it uses plain sudo so it can ask for the password" 'grep -q "^sudo apt-get install -y wlr-randr wlopm\$" "$LOG"'
-for t in wlr-randr wlopm; do stub $t 'exit 0'; done
+check "run by hand (--kiosk), it uses plain sudo so it can ask for the password" 'grep -q "^sudo apt-get install -y wlr-randr\$" "$LOG"'
+stub wlr-randr 'exit 0'
 setup --update
-check "tools already there: apt is not run" '! grep -q "apt-get" "$LOG"'
+check "tool already there: apt is not run" '! grep -q "apt-get" "$LOG"'
 
 # Wi-Fi power saving
 NMD="$WORK/nm"; NET="$WORK/net"; mkdir -p "$NMD" "$NET/wlan0"

@@ -53,9 +53,5 @@ esac
 # The browser can start before Docker has the dashboard up; wait for it.
 until curl -sf "$URL/" >/dev/null; do sleep 2; done
 
-# Night mode's "turn the screen off" (see screen.sh): runs beside the browser and stops with this service. It changes nothing
-# unless that option is chosen in the dashboard's Settings.
-[ -x "$HERE/screen.sh" ] && "$HERE/screen.sh" &
-
 BROWSER=$(command -v chromium || command -v chromium-browser) || { echo "kiosk: chromium is not installed" >&2; exit 1; }
 exec "$BROWSER" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "$URL/?kiosk=1"

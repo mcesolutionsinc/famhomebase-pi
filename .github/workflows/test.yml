@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint the shell scripts
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/screen.sh scripts/host-setup.sh scripts/generate-key.sh updater/update.sh
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/host-setup.sh scripts/generate-key.sh updater/update.sh
       - name: Test the updater
         run: sh tests/test-updater.sh
       - name: Test the installer
@@ -20,8 +20,6 @@ jobs:
         run: sh tests/test-kiosk.sh
       - name: Test the host-side update step
         run: sh tests/test-host-setup.sh
-      - name: Test the night-mode screen switch
-        run: sh tests/test-screen.sh
       - name: The compose file parses
         run: docker compose -f docker-compose.yml config > /dev/null
         env:

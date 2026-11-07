@@ -47,15 +47,15 @@ if [ "$KIOSK" -eq 1 ]; then
   fi
 fi
 
-# The display tools the kiosk uses: wlr-randr rotates the screen, wlopm turns it off at night (Settings → Night mode).
+# The display tool the kiosk uses: wlr-randr rotates the screen.
 missing=""
-for tool in wlr-randr wlopm; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"; done
+for tool in wlr-randr; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"; done
 if [ -n "$missing" ]; then
-  say "Installing the screen tools:$missing"
+  say "Installing the screen rotation tool:$missing"
   # After an update there is nobody to type a password: sudo -n only succeeds when sudo needs none.
   if [ "$UPDATE" -eq 1 ]; then sudo_cmd="sudo -n"; else sudo_cmd="sudo"; fi
   # shellcheck disable=SC2086 # a list of package names
-  $sudo_cmd apt-get install -y $missing >/dev/null 2>&1 || say "  (could not install them — run: sudo apt install$missing)"
+  $sudo_cmd apt-get install -y $missing >/dev/null 2>&1 || say "  (could not install it — run: sudo apt install$missing)"
 fi
 
 # Wi-Fi power saving, which the Pi's wireless chip has on by default, makes the connection drop and lag — the dashboard then loads slowly
@@ -121,9 +121,9 @@ if [ "$legacy" -eq 1 ]; then
   pkill -x chromium >/dev/null 2>&1 || true # the old kiosk's browser: the service starts its own
 fi
 
-# The kiosk and screen scripts are read when the service starts, so an update that changes them needs a restart to take effect.
+# The kiosk script is read when the service starts, so an update that changes them needs a restart to take effect.
 state="$DIR/.host-applied"
-scripts_now=$(cat "$DIR/scripts/kiosk.sh" "$DIR/scripts/screen.sh" 2>/dev/null | cksum)
+scripts_now=$(cat "$DIR/scripts/kiosk.sh" 2>/dev/null | cksum)
 scripts_before=$(cat "$state" 2>/dev/null || true)
 
 if systemctl --user daemon-reload >/dev/null 2>&1; then

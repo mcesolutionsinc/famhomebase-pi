@@ -79,14 +79,14 @@ check "--kiosk: the service itself knows nothing about the port or rotation (the
 check "--kiosk reloads systemd and enables and starts the service" 'grep -q "^systemctl --user daemon-reload" "$WORK/docker.log" && grep -q "^systemctl --user enable --now famhomebase-kiosk.service" "$WORK/docker.log"'
 check "--kiosk turns on desktop autologin" 'grep -q "raspi-config nonint do_boot_behaviour B4" "$WORK/docker.log"'
 check "--kiosk writes no labwc autostart file" '[ ! -e "$WORK/home/.config/labwc/autostart" ]'
-if ! command -v wlopm >/dev/null 2>&1 && ! command -v wlr-randr >/dev/null 2>&1; then # (skipped on a machine that has them)
+if ! command -v wlr-randr >/dev/null 2>&1; then # (skipped on a machine that has it)
   reset; run --dir "$WORK/inst" --kiosk
-  check "--kiosk installs the screen tools (wlr-randr to rotate, wlopm for night mode) when they are missing" 'grep -q "^apt-get install -y wlr-randr wlopm\$" "$WORK/docker.log"'
+  check "--kiosk installs the screen rotation tool (wlr-randr) when it is missing" 'grep -q "^apt-get install -y wlr-randr\$" "$WORK/docker.log"'
 fi
-for tool in wlr-randr wlopm; do printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/$tool"; chmod +x "$WORK/bin/$tool"; done
+for tool in wlr-randr; do printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/$tool"; chmod +x "$WORK/bin/$tool"; done
 reset; run --dir "$WORK/inst" --kiosk
-check "--kiosk leaves apt alone when the screen tools are already there" '! grep -q "^apt-get" "$WORK/docker.log"'
-rm -f "$WORK/bin/wlr-randr" "$WORK/bin/wlopm"
+check "--kiosk leaves apt alone when wlr-randr is already there" '! grep -q "^apt-get" "$WORK/docker.log"'
+rm -f "$WORK/bin/wlr-randr"
 reset; run --dir "$WORK/inst" --kiosk --no-start
 check "--kiosk --no-start enables the service but does not start it" 'grep -q "^systemctl --user enable famhomebase-kiosk.service" "$WORK/docker.log" && ! grep -q "enable --now" "$WORK/docker.log"'
 reset; run --dir "$WORK/inst"
