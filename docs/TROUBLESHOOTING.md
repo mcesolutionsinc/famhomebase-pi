@@ -40,10 +40,11 @@ never touched. Tell us in an issue with `docker compose logs --tail 100`.
 **The display shows the subscription page** — subscribe from your laptop; the display unlocks by itself within about
 15 seconds. If it doesn't, check the laptop and the Pi are using the same address, and reload the Pi's browser.
 
-**I want the screen dark at night** — turn on **Night mode** in Settings → Display and set **At night, the Pi's screen** to
-**Goes black**. The dashboard goes fully black between the times you set (in your timezone) and comes back by itself in the
-morning. The TV stays on and connected, so it keeps its rotation and doesn't need turning back on; its backlight still
-glows a little, so use the TV's own sleep timer if you want it fully off. **Dims** darkens it without going black.
+**I want the screen dark at night** — turn on **Night mode** in Settings → Display, set the times, and pick **How dark at
+night**: 30% up to **Black**. The dashboard darkens between those times (in your timezone) and comes back by itself in the
+morning. Only the picture changes, so the TV stays on and connected, keeps its rotation, and doesn't need turning back on;
+its backlight still glows a little, so use the TV's own sleep timer if you want it fully off. On a touch screen, touching it
+brightens it for a minute.
 
 ## Setting it up
 
