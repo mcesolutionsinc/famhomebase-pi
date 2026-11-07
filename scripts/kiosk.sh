@@ -7,6 +7,8 @@
 #   FAMHOMEBASE_PORT     the port the dashboard is on (default 80)
 #   FAMHOMEBASE_ROTATE   rotate the screen: 90, 180 or 270 (or normal). Unset = leave the screen alone.
 #   FAMHOMEBASE_OUTPUT   which display to rotate, e.g. HDMI-A-1. Unset = the first one `wlr-randr` lists.
+#   FAMHOMEBASE_PROFILE  the folder Chromium keeps its saved data in (default ~/.local/share/famhomebase-kiosk). The cloud display keeps
+#                        its pairing credential and its last layout there, so a restart or a power cut leaves it paired.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -17,6 +19,8 @@ PORT=$(getenv FAMHOMEBASE_PORT)
 case "$PORT" in ''|*[!0-9]*) PORT=80 ;; esac
 ROTATE=$(getenv FAMHOMEBASE_ROTATE)
 OUTPUT=$(getenv FAMHOMEBASE_OUTPUT)
+PROFILE=$(getenv FAMHOMEBASE_PROFILE)
+[ -n "$PROFILE" ] || PROFILE="${HOME:-/tmp}/.local/share/famhomebase-kiosk"
 if [ "$PORT" = 80 ]; then URL=http://localhost; else URL="http://localhost:$PORT"; fi
 
 XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
@@ -54,4 +58,7 @@ esac
 until curl -sf "$URL/" >/dev/null; do sleep 2; done
 
 BROWSER=$(command -v chromium || command -v chromium-browser) || { echo "kiosk: chromium is not installed" >&2; exit 1; }
-exec "$BROWSER" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic "$URL/?kiosk=1"
+mkdir -p "$PROFILE" || { echo "kiosk: cannot make the profile folder $PROFILE" >&2; exit 1; }
+# --user-data-dir: a saved profile of its own, apart from anyone's everyday Chromium. --hide-crash-restore-bubble: after a power cut
+# Chromium would otherwise ask "Restore pages?" on a screen nobody can click.
+exec "$BROWSER" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic --user-data-dir="$PROFILE" --hide-crash-restore-bubble "$URL/?kiosk=1"

@@ -11,7 +11,7 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 T="$WORK/inst"; BIN="$WORK/bin"; RT="$WORK/run"
 mkdir -p "$T/scripts" "$BIN" "$RT" "$WORK/tools"
 # Only the system tools the script really needs, so a chromium or wlr-randr that happens to be installed on this machine can't leak in.
-for tool in sed tail awk dirname; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
+for tool in sed tail awk dirname mkdir; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
 cp "$HERE/../scripts/kiosk.sh" "$T/scripts/kiosk.sh"
 LOG="$WORK/log"
 
@@ -24,13 +24,15 @@ stub wlr-randr 'if [ $# -eq 0 ]; then echo "HDMI-A-1 \"Some Monitor\""; echo "  
 
 run() { # extra env as args; returns the script's exit status
   : > "$LOG"
-  env PATH="$BIN:$WORK/tools" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" "$@" /bin/sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1
+  env PATH="$BIN:$WORK/tools" HOME="$WORK/home" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" "$@" /bin/sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1
 }
 touch "$RT/wayland-0" # the desktop is up
+mkdir -p "$WORK/home"
 
 rm -f "$T/.env"; run
 check "defaults: port 80, no port in the address, the kiosk flag" 'grep -q "^chromium .*http://localhost/?kiosk=1\$" "$LOG" && grep -q "^curl .*http://localhost/\$" "$LOG"'
 check "the browser flags: Wayland, kiosk, no dialogs, no first-run, no keyring" 'grep -q "ozone-platform=wayland" "$LOG" && grep -q -- "--kiosk" "$LOG" && grep -q "noerrdialogs" "$LOG" && grep -q "no-first-run" "$LOG" && grep -q "password-store=basic" "$LOG"'
+check "a saved profile of its own, under the home folder by default, and no restore bubble" 'grep -q -- "--user-data-dir=$WORK/home/.local/share/famhomebase-kiosk" "$LOG" && grep -q -- "--hide-crash-restore-bubble" "$LOG" && [ -d "$WORK/home/.local/share/famhomebase-kiosk" ]'
 check "no rotation setting: the screen is left alone" '! grep -q "^wlr-randr" "$LOG"'
 
 printf 'FAMHOMEBASE_PORT=8080\n' > "$T/.env"; run
@@ -39,6 +41,11 @@ printf 'FAMHOMEBASE_PORT=abc\n' > "$T/.env"; run
 check "a junk port falls back to 80" 'grep -q "http://localhost/?kiosk=1" "$LOG"'
 printf 'AUTO_UPDATE=true\nFAMHOMEBASE_PORT=81\nFAMHOMEBASE_PORT=8081\n' > "$T/.env"; run
 check "the last setting wins when .env repeats one" 'grep -q "localhost:8081/?kiosk=1" "$LOG"'
+
+printf 'FAMHOMEBASE_PROFILE=%s/elsewhere\n' "$WORK" > "$T/.env"; run
+check "the profile folder comes from .env" 'grep -q -- "--user-data-dir=$WORK/elsewhere " "$LOG" && [ -d "$WORK/elsewhere" ]'
+printf 'FAMHOMEBASE_PROFILE=/proc/nope/x\n' > "$T/.env"; run; rc=$?
+check "a profile folder that cannot be made: says so, does not open the browser" '[ $rc -ne 0 ] && grep -q "cannot make the profile folder" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
 
 printf 'FAMHOMEBASE_ROTATE=90\n' > "$T/.env"; run
 check "rotation: the first display wlr-randr lists is rotated" 'grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$LOG"'
