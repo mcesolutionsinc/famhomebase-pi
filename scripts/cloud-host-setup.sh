@@ -45,7 +45,8 @@ fi
 [ -n "$USER_NAME" ] || USER_NAME=$(stat -c %U "$DIR" 2>/dev/null || echo root)
 USER_HOME=${FAMHOMEBASE_USER_HOME:-$(getent passwd "$USER_NAME" | cut -d: -f6)}
 USER_ID=$(id -u "$USER_NAME" 2>/dev/null || echo 0)
-getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1; }
+# a value as written in .env: a Windows line ending and one pair of quotes around it are not part of it
+getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 
 changed_units=0
 write_unit() { # file path, then the file's text on stdin; notes whether it changed
@@ -90,7 +91,7 @@ After=docker.service network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/bin/sh $DIR/scripts/cloud-run.sh
+ExecStart=/bin/sh "$DIR/scripts/cloud-run.sh"
 ExecStopPost=-/bin/sh -c 'docker rm -f famhomebase-display >/dev/null 2>&1'
 Restart=always
 RestartSec=5
@@ -108,7 +109,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh $DIR/scripts/cloud-update.sh
+ExecStart=/bin/sh "$DIR/scripts/cloud-update.sh"
 UNIT_EOF
 
 write_unit "$SYSTEMD_DIR/famhomebase-cloud-update.timer" <<UNIT_EOF
@@ -130,7 +131,7 @@ kiosk=0
 if [ "$KIOSK" -eq 1 ]; then
   kiosk=1
 elif [ -f "$kiosk_unit" ]; then
-  if grep -q "^ExecStart=$DIR/scripts/kiosk.sh\$" "$kiosk_unit"; then
+  if grep -Fxq "ExecStart=\"$DIR/scripts/kiosk.sh\"" "$kiosk_unit"; then
     kiosk=1
   else
     jlog info "left the kiosk service alone: it belongs to another FamHomeBase install (use --kiosk to move it here)"
@@ -144,7 +145,7 @@ if [ "$kiosk" -eq 1 ]; then
 Description=FamHomeBase kiosk display
 
 [Service]
-ExecStart=$DIR/scripts/kiosk.sh
+ExecStart="$DIR/scripts/kiosk.sh"
 Restart=always
 RestartSec=5
 
@@ -188,9 +189,12 @@ if [ "$kiosk" -eq 1 ]; then
           user_ctl restart famhomebase-kiosk.service >/dev/null 2>&1 && jlog info "restarted the kiosk"
         fi
       else
+        was_active=0; user_ctl is-active --quiet famhomebase-kiosk.service >/dev/null 2>&1 && was_active=1
         user_ctl enable --now famhomebase-kiosk.service >/dev/null 2>&1 || jlog warn "could not start the kiosk: it starts at the next login"
-        # already running on an older script or unit: move it onto this install's
-        { [ "$kiosk_changed" -eq 1 ] || [ "$scripts_now" != "$scripts_before" ]; } && user_ctl restart famhomebase-kiosk.service >/dev/null 2>&1
+        # already running on an older script or unit: move it onto this install's. A kiosk that was not running was just started on the new ones.
+        if [ "$was_active" -eq 1 ] && { [ "$kiosk_changed" -eq 1 ] || [ "$scripts_now" != "$scripts_before" ]; }; then
+          user_ctl restart famhomebase-kiosk.service >/dev/null 2>&1
+        fi
       fi
     else
       user_ctl enable famhomebase-kiosk.service >/dev/null 2>&1

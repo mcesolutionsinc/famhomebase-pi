@@ -50,6 +50,8 @@ need systemctl "This installer needs systemd."
 [ "$(id -u)" -eq 0 ] || need sudo "Install it with: apt install sudo (or run the installer as root)"
 need docker "Install Docker first: see https://github.com/$REPO/blob/main/docs/INSTALL.md (section 'Install Docker')"
 
+# the folder goes into unit files and .env: keep to a plain path
+echo "$DIR" | grep -Eq '^[A-Za-z0-9._/~-]+$' || die "the install folder '$DIR' has spaces or special characters: use a plain path such as ~/famhomebase-cloud"
 case "$ENVNAME" in ''|prod|staging) ;; *) die "'$ENVNAME' is not an environment: use prod or staging" ;; esac
 if [ -n "$API_URL" ]; then
   echo "$API_URL" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' || die "'$API_URL' is not an address like https://famhomebase.mc-esolutions.ca (https, a host, no path)"

@@ -30,6 +30,9 @@ check "its log line is JSON" "grep -q '^{\"ts\":\".*\"level\":\"info\",\"compone
 fresh 0.2.3; printf 'FAMHOMEBASE_ENV=staging\nFAMHOMEBASE_API_URL=https://staging.example.net\nFAMHOMEBASE_PORT=8080\nFAMHOMEBASE_CLOUD_IMAGE=local/img\n' > "$WORK/inst/.env"; run; st=$?
 check "reads .env: staging, address, port and image" "[ $st = 0 ] && grep -q -- '-p 8080:8080' \$DOCKER_LOG && grep -q 'FAMHOMEBASE_ENV=staging' \$DOCKER_LOG && grep -q 'FAMHOMEBASE_API_URL=https://staging.example.net' \$DOCKER_LOG && grep -q 'local/img:0.2.3\$' \$DOCKER_LOG"
 
+fresh 0.1.0; printf 'FAMHOMEBASE_PORT=8080\r\nFAMHOMEBASE_ENV="staging"\r\nFAMHOMEBASE_API_URL=%s\r\n' "'https://staging.example.net'" > "$WORK/inst/.env"; run; st=$?
+check "a .env written on Windows or with quotes is read as meant" "[ $st = 0 ] && grep -q -- '-p 8080:8080' \$DOCKER_LOG && grep -q 'FAMHOMEBASE_ENV=staging ' \$DOCKER_LOG && grep -q 'FAMHOMEBASE_API_URL=https://staging.example.net ' \$DOCKER_LOG"
+
 fresh 0.1.0; echo 'FAMHOMEBASE_PORT=99999' > "$WORK/inst/.env"; run; st=$?
 check "a bad port stops it with a JSON error and starts nothing" "[ $st != 0 ] && grep -q '\"level\":\"error\"' \$WORK/out && ! grep -q '^run ' \$DOCKER_LOG"
 fresh 0.1.0; echo 'FAMHOMEBASE_ENV=dev' > "$WORK/inst/.env"; run; st=$?

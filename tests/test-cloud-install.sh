@@ -83,6 +83,8 @@ fresh; install --api-url https://example.net/path; st=$?
 check "an address with a path is refused" "[ $st != 0 ] && [ ! -e $I ]"
 fresh; install --api-url http://example.net; st=$?
 check "a plain http address is refused" "[ $st != 0 ]"
+fresh; install --dir "$WORK/with space"; st=$?
+check "an install folder with a space is refused before anything is downloaded" "[ $st != 0 ] && grep -q 'plain path' \$WORK/err"
 fresh; install --port 0; st=$?
 check "a bad port is refused" "[ $st != 0 ]"
 fresh; FAIL_PULL=1 install; st=$?

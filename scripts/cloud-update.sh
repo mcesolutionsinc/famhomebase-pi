@@ -32,7 +32,8 @@ NAME=famhomebase-display
 case "$DIR" in ""|"/") printf '{"level":"error","component":"cloud-update","msg":"FAMHOMEBASE_DIR must be the install folder"}\n' >&2; exit 1 ;; esac
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"cloud-update","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
-getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1; }
+# a value as written in .env: a Windows line ending and one pair of quotes around it are not part of it
+getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 is_semver() { echo "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; }
 current_version() { tr -d ' \r\n' < "$DIR/VERSION" 2>/dev/null; }
 
@@ -62,6 +63,8 @@ latest_version() {
 recently_failed() {
   [ -f "$DIR/.update-failed" ] || return 1
   read -r failed_ver failed_at < "$DIR/.update-failed" || return 1
+  # a half-written file (a power cut) is no record at all: it must not stop the script
+  case "$failed_at" in ''|*[!0-9]*) return 1 ;; esac
   [ "$failed_ver" = "$1" ] && [ $(( $(date +%s) - failed_at )) -lt "$RETRY_AFTER_FAILURE" ]
 }
 
@@ -98,7 +101,8 @@ is_semver "$current" || { jlog error "VERSION in $DIR is not a version (got '$cu
 latest=$(latest_version) || { jlog warn "could not look up the latest cloud release (offline?); will try again at the next check"; exit 0; }
 is_semver "$latest" || { jlog warn "could not read the latest cloud release"; exit 0; }
 if ! ver_gt "$latest" "$current"; then jlog info "up to date at $current"; exit 0; fi
-if [ "$(getenv AUTO_UPDATE)" = false ]; then jlog info "release $latest is available (AUTO_UPDATE=false, so not installing)"; exit 0; fi
+case "$(getenv AUTO_UPDATE | tr 'A-Z' 'a-z')" in false|0|no|off) auto=0 ;; *) auto=1 ;; esac
+if [ "$auto" -eq 0 ]; then jlog info "release $latest is available (AUTO_UPDATE is off, so not installing)"; exit 0; fi
 if recently_failed "$latest"; then jlog warn "$latest failed to start recently; not trying it again yet"; exit 0; fi
 
 jlog info "updating $current to $latest"
@@ -129,6 +133,8 @@ for d in $SWAP_DIRS; do [ -d "$DIR/$d" ] && cp -r "$DIR/$d" "$rollback/$d"; done
 fail() {
   jlog error "$1: putting the old version back"
   restore_from "$rollback"
+  # the old image is normally still here; if it was pruned in the meantime, fetch it again
+  "$DOCKER" image inspect "$image:$current" >/dev/null 2>&1 || "$DOCKER" pull "$image:$current" >/dev/null 2>&1
   sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1
   printf '%s %s\n' "$latest" "$(date +%s)" > "$DIR/.update-failed"
   if wait_healthy "$current"; then jlog warn "back on $current and healthy"; else jlog error "the display is not healthy after going back to $current: see journalctl -u famhomebase-cloud"; fi
@@ -143,5 +149,9 @@ sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1 || fail "applying
 wait_healthy "$latest" || fail "the display did not become healthy on $latest within ${HEALTH_TIMEOUT}s"
 
 rm -f "$DIR/.update-failed"
+# keep this version and the one before (a way back); older images would fill the card over many releases
+for tag in $("$DOCKER" images --format '{{.Tag}}' "$image" 2>/dev/null); do
+  case "$tag" in "$latest"|"$current") ;; *) is_semver "$tag" && "$DOCKER" rmi "$image:$tag" >/dev/null 2>&1 ;; esac
+done
 jlog info "updated $current to $latest"
 exit 0

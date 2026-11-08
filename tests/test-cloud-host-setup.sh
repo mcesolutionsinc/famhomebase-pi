@@ -24,6 +24,7 @@ shift 5   # -u NAME -- env XDG=...
 shift     # the systemctl path
 echo "user: systemctl $*" >> "$CTL_LOG"
 [ "${FAIL_USER:-}" = 1 ] && exit 1
+case "$*" in *is-active*) [ "${ACTIVE:-}" = 1 ]; exit $? ;; esac
 exit 0
 STUB
 cat > "$WORK/bin/raspi-config" <<'STUB'
@@ -44,9 +45,10 @@ setup() { sh "$WORK/inst/scripts/cloud-host-setup.sh" "$@" > "$WORK/out" 2> "$WO
 INST="$WORK/inst"; UNIT="$WORK/system"; KU="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
 
 fresh; setup; st=$?
-check "writes the display unit: runs cloud-run.sh, restarts always, after docker" "[ $st = 0 ] && grep -q \"^ExecStart=/bin/sh $INST/scripts/cloud-run.sh\$\" $UNIT/famhomebase-cloud.service && grep -q '^Restart=always' $UNIT/famhomebase-cloud.service && grep -q '^After=docker.service' $UNIT/famhomebase-cloud.service"
+check "writes the display unit: runs cloud-run.sh, restarts always, after docker" "[ $st = 0 ] && grep -Fxq 'ExecStart=/bin/sh \"$INST/scripts/cloud-run.sh\"' $UNIT/famhomebase-cloud.service && grep -q '^Restart=always' $UNIT/famhomebase-cloud.service && grep -q '^After=docker.service' $UNIT/famhomebase-cloud.service"
+check "the folder is quoted in the unit, so a path with odd characters still starts" "grep -q 'ExecStart=/bin/sh \"' $UNIT/famhomebase-cloud.service"
 check "the display unit removes the container when it stops" "grep -q 'ExecStopPost=.*docker rm -f famhomebase-display' $UNIT/famhomebase-cloud.service"
-check "writes the update service and a timer every 6 hours by default" "grep -q \"^ExecStart=/bin/sh $INST/scripts/cloud-update.sh\$\" $UNIT/famhomebase-cloud-update.service && grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-cloud-update.timer"
+check "writes the update service and a timer every 6 hours by default" "grep -Fxq 'ExecStart=/bin/sh \"$INST/scripts/cloud-update.sh\"' $UNIT/famhomebase-cloud-update.service && grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-cloud-update.timer"
 check "enables and starts the display and the timer" "grep -q 'enable famhomebase-cloud.service famhomebase-cloud-update.timer' \$CTL_LOG && grep -q 'start famhomebase-cloud.service' \$CTL_LOG && grep -q 'start famhomebase-cloud-update.timer' \$CTL_LOG"
 check "no kiosk without --kiosk" "[ ! -e $KU ] && ! grep -q '^user:' \$CTL_LOG && ! grep -q raspi-config \$CTL_LOG"
 
@@ -56,13 +58,13 @@ fresh; echo 'CHECK_INTERVAL_HOURS=9999' > "$INST/.env"; setup
 check "an interval out of range falls back to 6" "grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-cloud-update.timer"
 
 fresh; setup --kiosk; st=$?
-check "--kiosk writes the kiosk unit for this install's script and turns on desktop autologin" "[ $st = 0 ] && grep -q \"^ExecStart=$INST/scripts/kiosk.sh\$\" $KU && grep -q 'raspi-config nonint do_boot_behaviour B4' \$CTL_LOG"
+check "--kiosk writes the kiosk unit for this install's script and turns on desktop autologin" "[ $st = 0 ] && grep -Fxq 'ExecStart=\"$INST/scripts/kiosk.sh\"' $KU && grep -q 'raspi-config nonint do_boot_behaviour B4' \$CTL_LOG"
 check "--kiosk enables and starts the kiosk in the user's systemd, and switches off the old line's update watcher" "grep -q 'user: systemctl --user enable --now famhomebase-kiosk.service' \$CTL_LOG && grep -q 'disable --now famhomebase-host.path' \$CTL_LOG"
 
 fresh; mkdir -p "$(dirname "$KU")"; printf '[Service]\nExecStart=/home/pi/famhomebase-pi/scripts/kiosk.sh\n' > "$KU"; setup
 check "without --kiosk another install's kiosk service is left alone" "grep -q 'famhomebase-pi/scripts/kiosk.sh' $KU && ! grep -q '^user:' \$CTL_LOG && grep -q 'left the kiosk service alone' \$WORK/out"
 setup --kiosk
-check "with --kiosk it is taken over" "grep -q \"^ExecStart=$INST/scripts/kiosk.sh\$\" $KU"
+check "with --kiosk it is taken over" "grep -Fxq 'ExecStart=\"$INST/scripts/kiosk.sh\"' $KU"
 
 fresh; rm -rf "${WORK:?}/home"; mkdir "$WORK/home"; setup --kiosk
 check "folders made on the way to the user's kiosk unit are the user's (not left as root's)" "[ \$(stat -c %U $WORK/home/.config/systemd/user) = \$(id -un) ]"
@@ -73,6 +75,11 @@ echo '# changed' >> "$INST/scripts/kiosk.sh"; : > "$CTL_LOG"; setup --kiosk --up
 check "an update that changes the kiosk script restarts the kiosk" "grep -q 'user: systemctl --user restart famhomebase-kiosk.service' \$CTL_LOG"
 : > "$CTL_LOG"; setup --kiosk --update
 check "and not again the next time" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG"
+
+fresh; setup --kiosk
+check "a fresh --kiosk install starts the kiosk once, without restarting it straight away" "grep -q 'enable --now famhomebase-kiosk.service' \$CTL_LOG && ! grep -q 'restart famhomebase-kiosk' \$CTL_LOG"
+fresh; ACTIVE=1 setup --kiosk
+check "a kiosk that was already running (on an older install) is moved onto the new files with a restart" "grep -q 'user: systemctl --user restart famhomebase-kiosk.service' \$CTL_LOG"
 
 fresh; setup --kiosk --no-start
 check "--no-start enables but starts nothing" "! grep -q 'start famhomebase' \$CTL_LOG && grep -q 'enable famhomebase-cloud.service' \$CTL_LOG && ! grep -q 'enable --now' \$CTL_LOG"

@@ -24,6 +24,8 @@ cat > "$WORK/bin/docker" <<'STUB'
 echo "$*" >> "$DOCKER_LOG"
 case "$1" in
   pull) [ -z "${FAIL_PULL:-}" ] ;;
+  images) printf '%s\n' ${IMAGE_TAGS:-} ;;
+  image) [ -z "${NO_OLD_IMAGE:-}" ] ;;
   inspect) case "$*" in
       # the image of the running container: what VERSION says, as the run script would have started it (RUNNING overrides: a restart that never happened)
       *Config.Image*) echo "ghcr.io/mcesolutionsinc/famhomebase-pi-cloud:${RUNNING:-$(cat "$INSTDIR/VERSION")}" ;;
@@ -72,7 +74,7 @@ fresh() {
   printf '#!/bin/sh\necho "host-setup %s $*" >> "%s"\n' "$1" "$WORK/host.log" > "$WORK/inst/scripts/cloud-host-setup.sh"
   printf 'FAMHOMEBASE_ENV=staging\nAUTO_UPDATE=true\n' > "$WORK/inst/.env"
   HEALTH=healthy; export HEALTH
-  unset FAIL_PULL FAIL_HOST RUNNING
+  unset FAIL_PULL FAIL_HOST RUNNING IMAGE_TAGS NO_OLD_IMAGE
 }
 update() { FAMHOMEBASE_DIR="$WORK/inst" sh "$WORK/inst/scripts/cloud-update.sh" > "$WORK/out" 2>&1; }
 version() { tr -d ' \r\n' < "$WORK/inst/VERSION"; }
@@ -124,6 +126,21 @@ check "and after the wait it tries again, and succeeds" "[ \"\$(version)\" = 0.2
 
 fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; RUNNING=0.1.0 update; st=$?
 check "a restart that never happened (the OLD container still running and healthy) does not count as the new version up" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'did not become healthy on 0.2.0' \$WORK/out"
+
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; echo 'AUTO_UPDATE="False"' > "$I/.env"; printf 'AUTO_UPDATE=No\r\n' >> "$I/.env"; update
+check "AUTO_UPDATE is read the way it is likely to be written: quotes and capitals are fine" "[ \"\$(version)\" = 0.1.0 ] && grep -q 'AUTO_UPDATE is off' \$WORK/out"
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; printf 'AUTO_UPDATE=true\r\n' > "$I/.env"; update
+check "a Windows line ending in .env does not stop an update" "[ \"\$(version)\" = 0.2.0 ]"
+
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; echo "0.2.0 not-a-number" > "$I/.update-failed"; update; st=$?
+check "a half-written failure record is ignored, not fatal" "[ $st = 0 ] && [ \"\$(version)\" = 0.2.0 ]"
+
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; IMAGE_TAGS="0.0.9 0.1.0 0.2.0 latest" update
+check "after an update the image before the previous one is removed, and this one, the previous one and other tags stay" "grep -q '^rmi ghcr.io/mcesolutionsinc/famhomebase-pi-cloud:0.0.9' \$DOCKER_LOG && ! grep -q 'rmi .*:0.1.0' \$DOCKER_LOG && ! grep -q 'rmi .*:0.2.0' \$DOCKER_LOG && ! grep -q 'rmi .*:latest' \$DOCKER_LOG"
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; HEALTH=unhealthy NO_OLD_IMAGE=1 update
+check "a rollback fetches the old image again if it is no longer on the machine" "grep -q '^pull ghcr.io/mcesolutionsinc/famhomebase-pi-cloud:0.1.0' \$DOCKER_LOG"
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; HEALTH=unhealthy update
+check "and does not when it is still there" "[ \$(grep -c '^pull ' \$DOCKER_LOG) = 1 ]"
 
 fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; FAIL_HOST=1 update; st=$?
 check "applying the new files failing puts the old version back" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'old run 0.1.0' $I/scripts/cloud-run.sh"

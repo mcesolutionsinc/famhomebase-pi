@@ -16,7 +16,8 @@ DOCKER=${DOCKER:-docker}
 NAME=famhomebase-display
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"cloud-run","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
-getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1; }
+# a value as written in .env: a Windows line ending and one pair of quotes around it are not part of it
+getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 
 VERSION=$(tr -d ' \r\n' < "$DIR/VERSION" 2>/dev/null || true)
 echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { jlog error "VERSION in $DIR is not a version like 0.1.0 (got '$VERSION')"; exit 1; }
