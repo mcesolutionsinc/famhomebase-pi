@@ -25,7 +25,8 @@ echo "$*" >> "$DOCKER_LOG"
 [ "$1" = pull ] && [ -n "${FAIL_PULL:-}" ] && exit 1
 exit 0
 STUB
-for t in systemctl sudo; do printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/$t"; done
+printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/systemctl"
+printf '#!/bin/sh\nexec "$@"\n' > "$WORK/bin/sudo"
 chmod +x "$WORK/bin/"*
 export PATH="$WORK/bin:$PATH" CURL="$WORK/bin/curl" DOCKER_LOG="$WORK/docker.log"
 export GITHUB_API=https://api.example.test GITHUB_DOWNLOAD=https://dl.example.test

@@ -47,7 +47,7 @@ need curl "Install it with: sudo apt install curl"
 need tar "Install it with: sudo apt install tar"
 need sha256sum "Install it with: sudo apt install coreutils"
 need systemctl "This installer needs systemd."
-need sudo "Install it with: apt install sudo (or run the installer as root)"
+[ "$(id -u)" -eq 0 ] || need sudo "Install it with: apt install sudo (or run the installer as root)"
 need docker "Install Docker first: see https://github.com/$REPO/blob/main/docs/INSTALL.md (section 'Install Docker')"
 
 case "$ENVNAME" in ''|prod|staging) ;; *) die "'$ENVNAME' is not an environment: use prod or staging" ;; esac
@@ -115,7 +115,7 @@ image=$(sed -n 's/^FAMHOMEBASE_CLOUD_IMAGE=\(.*\)$/\1/p' "$DIR/.env" | tail -n 1
 image=${image:-ghcr.io/mcesolutionsinc/famhomebase-pi-cloud}
 if [ "$START" -eq 1 ]; then
   say "Downloading the display image (the first time takes a minute)..."
-  docker pull "$image:$WANT" >/dev/null 2>&1 || docker pull "$image:$WANT" || die "could not pull $image:$WANT. If it says denied, the package is not public yet; if the Docker daemon is not reachable, add yourself to the docker group (sudo usermod -aG docker \$USER), log out and back in, and run this again."
+  docker pull "$image:$WANT" >/dev/null 2>&1 || sudo docker pull "$image:$WANT" || die "could not pull $image:$WANT. If it says denied, the package is not public yet; if the Docker daemon is not reachable, add yourself to the docker group (sudo usermod -aG docker \$USER), log out and back in, and run this again."
 fi
 
 host_args="--user $(id -un)"

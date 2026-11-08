@@ -24,11 +24,15 @@ cat > "$WORK/bin/docker" <<'STUB'
 echo "$*" >> "$DOCKER_LOG"
 case "$1" in
   pull) [ -z "${FAIL_PULL:-}" ] ;;
-  inspect) echo "${HEALTH:-healthy}" ;;
+  inspect) case "$*" in
+      # the image of the running container: what VERSION says, as the run script would have started it (RUNNING overrides: a restart that never happened)
+      *Config.Image*) echo "ghcr.io/mcesolutionsinc/famhomebase-pi-cloud:${RUNNING:-$(cat "$INSTDIR/VERSION")}" ;;
+      *) echo "${HEALTH:-healthy}" ;;
+    esac ;;
 esac
 STUB
 chmod +x "$WORK/bin/curl" "$WORK/bin/docker"
-export CURL="$WORK/bin/curl" DOCKER="$WORK/bin/docker" DOCKER_LOG="$WORK/docker.log" HEALTH_TIMEOUT_SECONDS=1 HEALTH_POLL_SECONDS=1
+export INSTDIR="$WORK/inst" CURL="$WORK/bin/curl" DOCKER="$WORK/bin/docker" DOCKER_LOG="$WORK/docker.log" HEALTH_TIMEOUT_SECONDS=1 HEALTH_POLL_SECONDS=1
 export GITHUB_API=https://api.example.test GITHUB_DOWNLOAD=https://dl.example.test
 
 REPO=mcesolutionsinc/famhomebase-pi
@@ -68,7 +72,7 @@ fresh() {
   printf '#!/bin/sh\necho "host-setup %s $*" >> "%s"\n' "$1" "$WORK/host.log" > "$WORK/inst/scripts/cloud-host-setup.sh"
   printf 'FAMHOMEBASE_ENV=staging\nAUTO_UPDATE=true\n' > "$WORK/inst/.env"
   HEALTH=healthy; export HEALTH
-  unset FAIL_PULL FAIL_HOST
+  unset FAIL_PULL FAIL_HOST RUNNING
 }
 update() { FAMHOMEBASE_DIR="$WORK/inst" sh "$WORK/inst/scripts/cloud-update.sh" > "$WORK/out" 2>&1; }
 version() { tr -d ' \r\n' < "$WORK/inst/VERSION"; }
@@ -117,6 +121,9 @@ HEALTH=healthy; update; st=$?
 check "so the next check leaves it alone" "[ $st = 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'not trying it again' \$WORK/out"
 RETRY_AFTER_FAILURE_SECONDS=0 update
 check "and after the wait it tries again, and succeeds" "[ \"\$(version)\" = 0.2.0 ] && [ ! -e $I/.update-failed ]"
+
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; RUNNING=0.1.0 update; st=$?
+check "a restart that never happened (the OLD container still running and healthy) does not count as the new version up" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'did not become healthy on 0.2.0' \$WORK/out"
 
 fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; FAIL_HOST=1 update; st=$?
 check "applying the new files failing puts the old version back" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'old run 0.1.0' $I/scripts/cloud-run.sh"

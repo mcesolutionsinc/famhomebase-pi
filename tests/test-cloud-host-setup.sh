@@ -64,6 +64,9 @@ check "without --kiosk another install's kiosk service is left alone" "grep -q '
 setup --kiosk
 check "with --kiosk it is taken over" "grep -q \"^ExecStart=$INST/scripts/kiosk.sh\$\" $KU"
 
+fresh; rm -rf "${WORK:?}/home"; mkdir "$WORK/home"; setup --kiosk
+check "folders made on the way to the user's kiosk unit are the user's (not left as root's)" "[ \$(stat -c %U $WORK/home/.config/systemd/user) = \$(id -un) ]"
+
 fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
 check "an update that changes nothing does not restart the kiosk, but restarts the display" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG && grep -q 'system: restart famhomebase-cloud.service' \$CTL_LOG"
 echo '# changed' >> "$INST/scripts/kiosk.sh"; : > "$CTL_LOG"; setup --kiosk --update

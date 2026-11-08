@@ -49,7 +49,15 @@ getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1; 
 
 changed_units=0
 write_unit() { # file path, then the file's text on stdin; notes whether it changed
-  mkdir -p "$(dirname "$1")"
+  case "$1" in
+    "$USER_HOME"/*) # a file in the user's home: any folder made on the way belongs to the user, not to root
+      d="$USER_HOME"
+      for part in $(dirname "${1#"$USER_HOME"/}" | tr '/' ' '); do
+        d="$d/$part"
+        [ -d "$d" ] || { mkdir "$d" && chown "$USER_NAME" "$d" 2>/dev/null; }
+      done ;;
+    *) mkdir -p "$(dirname "$1")" ;;
+  esac
   cat > "$1.new"
   if cmp -s "$1.new" "$1" 2>/dev/null; then rm -f "$1.new"; else mv "$1.new" "$1"; changed_units=1; fi
 }

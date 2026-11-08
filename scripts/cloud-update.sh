@@ -65,11 +65,17 @@ recently_failed() {
   [ "$failed_ver" = "$1" ] && [ $(( $(date +%s) - failed_at )) -lt "$RETRY_AFTER_FAILURE" ]
 }
 
-health() { "$DOCKER" inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$NAME" 2>/dev/null || echo missing; }
-wait_healthy() {
+# The display's state, but only if what is running is the version asked about: a restart that silently failed leaves the OLD container
+# running and healthy, which must not count as the new version coming up.
+health() { # $1 = the version that should be running
+  image=$("$DOCKER" inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null) || { echo missing; return; }
+  case "$image" in *":$1") ;; *) echo "other-version"; return ;; esac
+  "$DOCKER" inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$NAME" 2>/dev/null || echo missing
+}
+wait_healthy() { # $1 = the version that should be running
   waited=0
   while [ "$waited" -lt "$HEALTH_TIMEOUT" ]; do
-    [ "$(health)" = healthy ] && return 0
+    [ "$(health "$1")" = healthy ] && return 0
     sleep "$HEALTH_POLL"
     waited=$((waited + HEALTH_POLL))
   done
@@ -125,7 +131,7 @@ fail() {
   restore_from "$rollback"
   sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1
   printf '%s %s\n' "$latest" "$(date +%s)" > "$DIR/.update-failed"
-  if wait_healthy; then jlog warn "back on $current and healthy"; else jlog error "the display is not healthy after going back to $current: see journalctl -u famhomebase-cloud"; fi
+  if wait_healthy "$current"; then jlog warn "back on $current and healthy"; else jlog error "the display is not healthy after going back to $current: see journalctl -u famhomebase-cloud"; fi
   exit 1
 }
 
@@ -134,7 +140,7 @@ for d in $SWAP_DIRS; do
   if [ -d "$tmp/new/$d" ]; then rm -rf "${DIR:?}/$d"; cp -r "$tmp/new/$d" "$DIR/$d"; fi
 done
 sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1 || fail "applying the new files to this machine failed"
-wait_healthy || fail "the display did not become healthy within ${HEALTH_TIMEOUT}s"
+wait_healthy "$latest" || fail "the display did not become healthy on $latest within ${HEALTH_TIMEOUT}s"
 
 rm -f "$DIR/.update-failed"
 jlog info "updated $current to $latest"
