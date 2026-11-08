@@ -1,0 +1,78 @@
+name: Release (cloud display)
+
+# Runs when a cloud-vX.Y.Z tag lands on this repo. The app repo's release-cloud workflow publishes the image famhomebase-pi-cloud:X.Y.Z
+# for the same version first (tag cloud-vX.Y.Z there), so by the time this runs the image exists. It builds the host payload:
+#   famhomebase-pi-cloud-X.Y.Z.tar.gz         scripts, the cloud .env example, docs (the update script applies it with the image)
+#   famhomebase-pi-cloud-X.Y.Z.tar.gz.sha256  its checksum (the installer and the update script both verify it)
+#   cloud-install.sh                          the installer
+# It is NOT marked "latest": the repo's latest release belongs to the old line (v* tags), whose installer and updater look for it.
+on:
+  push:
+    tags: ["cloud-v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the tag
+        run: echo "$GITHUB_REF_NAME" | grep -Eq '^cloud-v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::tag must look like cloud-v0.1.0"; exit 1; }
+      - uses: actions/checkout@v4
+
+      - name: Test the scripts that ship
+        run: |
+          sh tests/test-cloud-run.sh
+          sh tests/test-cloud-host-setup.sh
+          sh tests/test-cloud-update.sh
+          sh tests/test-cloud-install.sh
+          sh tests/test-kiosk.sh
+
+      - name: Check the image this release needs exists
+        run: |
+          version="${GITHUB_REF_NAME#cloud-v}"
+          image=famhomebase-pi-cloud
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:mcesolutionsinc/$image:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            "https://ghcr.io/v2/mcesolutionsinc/$image/manifests/$version")
+          if [ "$code" != 200 ]; then
+            echo "::error::$image:$version is not publicly pullable (HTTP $code): a release that needs it would not start. Is the app repo's cloud-v$version build finished, and is the package public?"
+            exit 1
+          fi
+
+      - name: Build the payload
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#cloud-v}"
+          name="famhomebase-pi-cloud-$version"
+          stage=$(mktemp -d)
+          mkdir "$stage/scripts" "$stage/docs"
+          cp scripts/cloud-run.sh scripts/cloud-host-setup.sh scripts/cloud-update.sh scripts/kiosk.sh "$stage/scripts/"
+          cp .env.cloud.example "$stage/.env.example"
+          cp README.md LICENSE "$stage"/
+          cp docs/CLOUD.md docs/TROUBLESHOOTING.md "$stage/docs/"
+          echo "$version" > "$stage/VERSION"
+          mkdir dist
+          tar -czf "dist/$name.tar.gz" -C "$stage" .
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          cp scripts/cloud-install.sh dist/cloud-install.sh
+          ls -l dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#cloud-v}"
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --latest=false \
+            --title "FamHomeBase cloud display $version" \
+            --generate-notes \
+            --notes "Install with one command (see docs/CLOUD.md for the options):
+
+          \`\`\`
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/cloud-install.sh | sh -s -- --kiosk
+          \`\`\`
+
+          Installs already running the cloud update timer pick this release up by themselves."

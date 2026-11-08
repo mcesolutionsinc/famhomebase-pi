@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint the shell scripts
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/host-setup.sh scripts/generate-key.sh updater/update.sh
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/host-setup.sh scripts/generate-key.sh updater/update.sh scripts/cloud-run.sh scripts/cloud-host-setup.sh scripts/cloud-update.sh scripts/cloud-install.sh tests/test-cloud-*.sh
       - name: Test the updater
         run: sh tests/test-updater.sh
       - name: Test the installer
@@ -20,6 +20,12 @@ jobs:
         run: sh tests/test-kiosk.sh
       - name: Test the host-side update step
         run: sh tests/test-host-setup.sh
+      - name: Test the cloud display's scripts
+        run: |
+          sh tests/test-cloud-run.sh
+          sh tests/test-cloud-host-setup.sh
+          sh tests/test-cloud-update.sh
+          sh tests/test-cloud-install.sh
       - name: The compose file parses
         run: docker compose -f docker-compose.yml config > /dev/null
         env:
