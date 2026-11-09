@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint the shell scripts and their tests
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh tests/test-*.sh
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/famhomebase tests/test-*.sh
       - name: Test the container's start script
         run: sh tests/test-run.sh
       - name: Test the host setup
@@ -22,3 +22,5 @@ jobs:
         run: sh tests/test-install.sh
       - name: Test the kiosk launcher
         run: sh tests/test-kiosk.sh
+      - name: Test the famhomebase command
+        run: sh tests/test-famhomebase.sh

@@ -7,15 +7,21 @@
 #                  service even if an older FamHomeBase install owns it)
 #     --no-start   set everything up, but don't start or restart anything
 #     --update     the run the update script does after swapping files: restarts the display, and the kiosk if its files changed
-#     --user NAME  whose desktop the kiosk runs in (default: the owner of this folder)
+#     --user NAME  whose desktop the kiosk runs in (default: the user who ran sudo)
 #
 # It writes three system units (the display container, the update service and its timer) and, for a kiosk, one user unit that runs
-# scripts/kiosk.sh. Without --kiosk it leaves a kiosk service that points at another install alone, so a test install can sit beside
-# a working one.
+# kiosk.sh. It also makes the state folder and the `famhomebase` command. Without --kiosk it leaves a kiosk service that points at
+# another install alone, so a test install can sit beside a working one.
+#
+# This script lives in /usr/local/lib/famhomebase (its own folder is the install). Settings are in /etc/famhomebase/famhomebase.env,
+# state (the saved copy for a way back, the kiosk's browser profile) in /var/lib/famhomebase. The tests move all of them.
 set -u
 
-HERE=$(cd "$(dirname "$0")" && pwd)
-DIR=$(cd "$HERE/.." && pwd)
+LIB=$(cd "$(dirname "$0")" && pwd)
+ETC_DIR=${FAMHOMEBASE_ETC_DIR:-/etc/famhomebase}
+STATE_DIR=${FAMHOMEBASE_STATE_DIR:-/var/lib/famhomebase}
+BIN_DIR=${FAMHOMEBASE_BIN_DIR:-/usr/local/bin}
+ENV_FILE="$ETC_DIR/famhomebase.env"
 SYSTEMCTL=${SYSTEMCTL:-systemctl}
 RUNUSER=${RUNUSER:-runuser}
 SYSTEMD_DIR=${FAMHOMEBASE_SYSTEMD_DIR:-/etc/systemd/system}
@@ -44,11 +50,11 @@ if [ "$(id -u)" -ne 0 ] && [ -z "${FAMHOMEBASE_NO_ROOT:-}" ]; then
   exec sudo sh "$0" $ARGS --user "$USER_NAME"
 fi
 
-[ -n "$USER_NAME" ] || USER_NAME=$(stat -c %U "$DIR" 2>/dev/null || echo root)
+[ -n "$USER_NAME" ] || USER_NAME=${SUDO_USER:-root}
 USER_HOME=${FAMHOMEBASE_USER_HOME:-$(getent passwd "$USER_NAME" | cut -d: -f6)}
 USER_ID=$(id -u "$USER_NAME" 2>/dev/null || echo 0)
-# a value as written in .env: a Windows line ending and one pair of quotes around it are not part of it
-getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
+# a value as written in the settings file: a Windows line ending and one pair of quotes around it are not part of it
+getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$ENV_FILE" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 
 changed_units=0
 write_unit() { # file path, then the file's text on stdin; notes whether it changed
@@ -64,6 +70,14 @@ write_unit() { # file path, then the file's text on stdin; notes whether it chan
   cat > "$1.new"
   if cmp -s "$1.new" "$1" 2>/dev/null; then rm -f "$1.new"; else mv "$1.new" "$1"; changed_units=1; fi
 }
+
+# --- the state folder, the `famhomebase` command, and the kiosk's browser profile ----------------------------------------------------
+mkdir -p "$STATE_DIR" "$BIN_DIR" 2>/dev/null
+if [ -f "$LIB/famhomebase" ]; then ln -sf "$LIB/famhomebase" "$BIN_DIR/famhomebase" 2>/dev/null || jlog warn "could not make the famhomebase command in $BIN_DIR"; fi
+if [ "$KIOSK" -eq 1 ]; then
+  # the kiosk runs as the desktop user, so the profile (it holds the pairing) is theirs, not root's
+  mkdir -p "$STATE_DIR/kiosk-profile" 2>/dev/null && chown "$USER_NAME" "$STATE_DIR/kiosk-profile" 2>/dev/null || jlog warn "could not prepare the kiosk profile folder $STATE_DIR/kiosk-profile"
+fi
 
 # --- the kiosk's desktop session: log in to the desktop by itself ---------------------------------------------------------------------
 if [ "$KIOSK" -eq 1 ] && command -v raspi-config >/dev/null 2>&1; then
@@ -103,7 +117,7 @@ After=docker.service network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/bin/sh "$DIR/scripts/run.sh"
+ExecStart=/bin/sh "$LIB/run.sh"
 ExecStopPost=-/bin/sh -c 'docker rm -f famhomebase-display >/dev/null 2>&1'
 Restart=always
 RestartSec=5
@@ -121,7 +135,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh "$DIR/scripts/update.sh"
+ExecStart=/bin/sh "$LIB/update.sh"
 UNIT_EOF
 
 write_unit "$SYSTEMD_DIR/famhomebase-update.timer" <<UNIT_EOF
@@ -143,7 +157,7 @@ kiosk=0
 if [ "$KIOSK" -eq 1 ]; then
   kiosk=1
 elif [ -f "$kiosk_unit" ]; then
-  if grep -Fxq "ExecStart=\"$DIR/scripts/kiosk.sh\"" "$kiosk_unit"; then
+  if grep -Fxq "ExecStart=\"$LIB/kiosk.sh\"" "$kiosk_unit"; then
     kiosk=1
   else
     jlog info "left the kiosk service alone: it belongs to another FamHomeBase install (use --kiosk to move it here)"
@@ -157,7 +171,7 @@ if [ "$kiosk" -eq 1 ]; then
 Description=FamHomeBase kiosk display
 
 [Service]
-ExecStart="$DIR/scripts/kiosk.sh"
+ExecStart="$LIB/kiosk.sh"
 Restart=always
 RestartSec=5
 
@@ -180,7 +194,12 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
       "$SYSTEMCTL" restart famhomebase.service >/dev/null 2>&1 && jlog info "restarted the display"
       [ "$changed_units" -eq 1 ] && "$SYSTEMCTL" restart famhomebase-update.timer >/dev/null 2>&1
     else
-      "$SYSTEMCTL" start famhomebase.service >/dev/null 2>&1 || jlog warn "could not start the display: see journalctl -u famhomebase"
+      # an install over a running one (new units, new settings) restarts it, so it runs what was just written
+      if "$SYSTEMCTL" is-active --quiet famhomebase.service >/dev/null 2>&1; then
+        "$SYSTEMCTL" restart famhomebase.service >/dev/null 2>&1 || jlog warn "could not restart the display: see journalctl -u famhomebase"
+      else
+        "$SYSTEMCTL" start famhomebase.service >/dev/null 2>&1 || jlog warn "could not start the display: see journalctl -u famhomebase"
+      fi
     fi
   fi
 else
@@ -189,8 +208,8 @@ fi
 
 if [ "$kiosk" -eq 1 ]; then
   # the kiosk script is read when the service starts, so a changed script needs a restart to take effect
-  state="$DIR/.host-applied"
-  scripts_now=$(cat "$DIR/scripts/kiosk.sh" 2>/dev/null | cksum)
+  state="$STATE_DIR/host-applied"
+  scripts_now=$(cat "$LIB/kiosk.sh" 2>/dev/null | cksum)
   scripts_before=$(cat "$state" 2>/dev/null || true)
   if user_ctl daemon-reload >/dev/null 2>&1; then
     # an earlier line of FamHomeBase re-ran its own host setup from a user path unit; with this install in charge that would undo it
@@ -215,6 +234,5 @@ if [ "$kiosk" -eq 1 ]; then
     jlog warn "could not reach $USER_NAME's systemd (normal before the first desktop login): the kiosk starts at the next login"
   fi
   printf '%s\n' "$scripts_now" > "$state" 2>/dev/null || true
-  chown "$USER_NAME" "$state" 2>/dev/null || true
 fi
 exit 0

@@ -5,7 +5,15 @@
 # A release is the container image AND a payload of host files (scripts, the units' text, docs) with the same version number. This
 # script looks for a newer vX.Y.Z release of famhomebase-pi, downloads the payload and checks its sha256, pulls the image, saves
 # the current files, swaps the new ones in, has host-setup.sh apply them to this machine, waits for the display to be healthy,
-# and puts everything back if it isn't. Your .env is never touched. AUTO_UPDATE=false in .env only logs that a release is available.
+# and puts everything back if it isn't. Your settings (/etc/famhomebase/famhomebase.env) are never touched. AUTO_UPDATE=false there
+# only logs that a release is available.
+#
+# Where things are (each can be moved with an environment variable, which the tests do):
+#   FAMHOMEBASE_LIB_DIR    /usr/local/lib/famhomebase       the scripts and VERSION (this script lives here)
+#   FAMHOMEBASE_DOC_DIR    /usr/local/share/doc/famhomebase  README, licence, INSTALL, TROUBLESHOOTING
+#   FAMHOMEBASE_ETC_DIR    /etc/famhomebase                 famhomebase.env (yours) and famhomebase.env.example (the release's)
+#   FAMHOMEBASE_STATE_DIR  /var/lib/famhomebase             the saved copy for a way back, the failed-version note, the kiosk profile
+# A release's payload has the same shape: scripts/, doc/, famhomebase.env.example and VERSION.
 set -u
 
 # This script is replaced by the very update it applies, and a shell reads its script as it runs: run from a copy.
@@ -20,23 +28,28 @@ trap cleanup EXIT
 REPO="${FAMHOMEBASE_REPO:-mcesolutionsinc/famhomebase-pi}"
 API="${GITHUB_API:-https://api.github.com}"
 DL="${GITHUB_DOWNLOAD:-https://github.com}"
-DIR="${FAMHOMEBASE_DIR:-$(cd "$(dirname "$ORIG")/.." && pwd)}"
+LIB_DIR="${FAMHOMEBASE_LIB_DIR:-$(cd "$(dirname "$ORIG")" && pwd)}"
+DOC_DIR="${FAMHOMEBASE_DOC_DIR:-/usr/local/share/doc/famhomebase}"
+ETC_DIR="${FAMHOMEBASE_ETC_DIR:-/etc/famhomebase}"
+STATE_DIR="${FAMHOMEBASE_STATE_DIR:-/var/lib/famhomebase}"
+ENV_FILE="$ETC_DIR/famhomebase.env"
 DOCKER="${DOCKER:-docker}"
 CURL="${CURL:-curl}"
-CHOWN="${CHOWN:-chown}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT_SECONDS:-240}"
 HEALTH_POLL="${HEALTH_POLL_SECONDS:-5}"
 RETRY_AFTER_FAILURE="${RETRY_AFTER_FAILURE_SECONDS:-86400}"
 NAME=famhomebase-display
 
-# This script deletes and replaces folders under $DIR; never let that be empty or the filesystem root.
-case "$DIR" in ""|"/") printf '{"level":"error","component":"update","msg":"FAMHOMEBASE_DIR must be the install folder"}\n' >&2; exit 1 ;; esac
+# This script deletes and replaces these folders; never let one be empty or the filesystem root.
+for d in "$LIB_DIR" "$DOC_DIR" "$ETC_DIR" "$STATE_DIR"; do
+  case "$d" in ""|"/") printf '{"level":"error","component":"update","msg":"an install folder is empty or the filesystem root"}\n' >&2; exit 1 ;; esac
+done
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"update","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
-# a value as written in .env: a Windows line ending and one pair of quotes around it are not part of it
-getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
+# a value as written in the settings file: a Windows line ending and one pair of quotes around it are not part of it
+getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$ENV_FILE" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 is_semver() { echo "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; }
-current_version() { tr -d ' \r\n' < "$DIR/VERSION" 2>/dev/null; }
+current_version() { tr -d ' \r\n' < "$LIB_DIR/VERSION" 2>/dev/null; }
 
 # $1 > $2, both x.y.z
 ver_gt() {
@@ -61,8 +74,8 @@ latest_version() {
 
 # A version that failed to come up is not retried for a day, so a bad release cannot make the display flap.
 recently_failed() {
-  [ -f "$DIR/.update-failed" ] || return 1
-  read -r failed_ver failed_at < "$DIR/.update-failed" || return 1
+  [ -f "$STATE_DIR/update-failed" ] || return 1
+  read -r failed_ver failed_at < "$STATE_DIR/update-failed" || return 1
   # a half-written file (a power cut) is no record at all: it must not stop the script
   case "$failed_at" in ''|*[!0-9]*) return 1 ;; esac
   [ "$failed_ver" = "$1" ] && [ $(( $(date +%s) - failed_at )) -lt "$RETRY_AFTER_FAILURE" ]
@@ -85,28 +98,27 @@ wait_healthy() { # $1 = the version that should be running
   return 1
 }
 
-# the files a release replaces; .env, .rollback and the like stay
-SWAP_FILES="VERSION README.md LICENSE .env.example"
-SWAP_DIRS="scripts docs"
-# This runs as root, so what it writes would be root's: hand it back to whoever owns the install folder (the desktop user), so they can still
-# edit it and the installer, run as them, can still replace it.
-fix_owner() {
-  owner=$(stat -c '%u:%g' "$DIR" 2>/dev/null) || return 0
-  for f in $SWAP_FILES $SWAP_DIRS .rollback .update-failed .host-applied; do
-    [ -e "$DIR/$f" ] && "$CHOWN" -R "$owner" "$DIR/$f" 2>/dev/null
-  done
+# A payload (a release, or the saved copy of what was installed) is a folder shaped like the release: scripts/, doc/,
+# famhomebase.env.example and VERSION. apply puts one in place; snapshot makes one from what is installed now. Your settings file
+# is not part of it. The files are root's (this runs as root and nothing here is in anyone's home folder).
+apply() { # $1 = a payload folder
+  rm -rf "${LIB_DIR:?}" "${DOC_DIR:?}" && mkdir -p "$LIB_DIR" "$DOC_DIR" "$ETC_DIR" || return 1
+  cp -R "$1/scripts/." "$LIB_DIR/" && cp -f "$1/VERSION" "$LIB_DIR/VERSION" || return 1
+  [ -d "$1/doc" ] && cp -R "$1/doc/." "$DOC_DIR/"
+  [ -f "$1/famhomebase.env.example" ] && cp -f "$1/famhomebase.env.example" "$ETC_DIR/famhomebase.env.example"
   return 0
 }
-restore_from() { # $1 = rollback dir
-  for f in $SWAP_FILES; do [ -f "$1/$f" ] && cp -f "$1/$f" "$DIR/$f"; done
-  for d in $SWAP_DIRS; do
-    if [ -d "$1/$d" ]; then rm -rf "${DIR:?}/$d"; cp -r "$1/$d" "$DIR/$d"; fi
-  done
+snapshot() { # $1 = an empty folder to fill
+  mkdir -p "$1/scripts" "$1/doc"
+  cp -R "$LIB_DIR/." "$1/scripts/" && mv "$1/scripts/VERSION" "$1/VERSION" || return 1
+  [ -d "$DOC_DIR" ] && cp -R "$DOC_DIR/." "$1/doc/"
+  [ -f "$ETC_DIR/famhomebase.env.example" ] && cp -f "$ETC_DIR/famhomebase.env.example" "$1/famhomebase.env.example"
+  return 0
 }
 
 # --- decide ------------------------------------------------------------------------------------------------------------------------
 current=$(current_version)
-is_semver "$current" || { jlog error "VERSION in $DIR is not a version (got '$current'): nothing to update from"; exit 1; }
+is_semver "$current" || { jlog error "VERSION in $LIB_DIR is not a version (got '$current'): nothing to update from"; exit 1; }
 latest=$(latest_version) || { jlog warn "could not look up the latest release (offline?); will try again at the next check"; exit 0; }
 is_semver "$latest" || { jlog warn "could not read the latest release"; exit 0; }
 if ! ver_gt "$latest" "$current"; then jlog info "up to date at $current"; exit 0; fi
@@ -134,33 +146,26 @@ image=$(getenv FAMHOMEBASE_IMAGE); image=${image:-ghcr.io/mcesolutionsinc/famhom
 "$DOCKER" pull "$image:$latest" >/dev/null 2>&1 || { jlog error "could not pull $image:$latest (is the package public, and the release finished?); nothing was changed"; exit 1; }
 
 # --- save, swap, apply ------------------------------------------------------------------------------------------------------------
-rollback="$DIR/.rollback"
+rollback="$STATE_DIR/rollback"
 rm -rf "${rollback:?}"; mkdir -p "$rollback"
-for f in $SWAP_FILES; do [ -f "$DIR/$f" ] && cp -f "$DIR/$f" "$rollback/$f"; done
-for d in $SWAP_DIRS; do [ -d "$DIR/$d" ] && cp -r "$DIR/$d" "$rollback/$d"; done
+snapshot "$rollback" || { jlog error "could not save the current files; nothing was changed"; exit 1; }
 
 fail() {
   jlog error "$1: putting the old version back"
-  restore_from "$rollback"
-  fix_owner
+  apply "$rollback"
   # the old image is normally still here; if it was pruned in the meantime, fetch it again
   "$DOCKER" image inspect "$image:$current" >/dev/null 2>&1 || "$DOCKER" pull "$image:$current" >/dev/null 2>&1
-  sh "$DIR/scripts/host-setup.sh" --update >/dev/null 2>&1
-  printf '%s %s\n' "$latest" "$(date +%s)" > "$DIR/.update-failed"
+  sh "$LIB_DIR/host-setup.sh" --update >/dev/null 2>&1
+  printf '%s %s\n' "$latest" "$(date +%s)" > "$STATE_DIR/update-failed"
   if wait_healthy "$current"; then jlog warn "back on $current and healthy"; else jlog error "the display is not healthy after going back to $current: see journalctl -u famhomebase"; fi
   exit 1
 }
 
-for f in $SWAP_FILES; do [ -f "$tmp/new/$f" ] && cp -f "$tmp/new/$f" "$DIR/$f"; done
-for d in $SWAP_DIRS; do
-  if [ -d "$tmp/new/$d" ]; then rm -rf "${DIR:?}/$d"; cp -r "$tmp/new/$d" "$DIR/$d"; fi
-done
-fix_owner
-sh "$DIR/scripts/host-setup.sh" --update >/dev/null 2>&1 || fail "applying the new files to this machine failed"
-fix_owner
+apply "$tmp/new" || fail "putting the new files in place failed"
+sh "$LIB_DIR/host-setup.sh" --update >/dev/null 2>&1 || fail "applying the new files to this machine failed"
 wait_healthy "$latest" || fail "the display did not become healthy on $latest within ${HEALTH_TIMEOUT}s"
 
-rm -f "$DIR/.update-failed"
+rm -f "$STATE_DIR/update-failed"
 # keep this version and the one before (a way back); older images would fill the card over many releases
 for tag in $("$DOCKER" images --format '{{.Tag}}' "$image" 2>/dev/null); do
   case "$tag" in "$latest"|"$current") ;; *) is_semver "$tag" && "$DOCKER" rmi "$image:$tag" >/dev/null 2>&1 ;; esac

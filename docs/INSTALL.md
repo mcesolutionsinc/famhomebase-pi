@@ -43,22 +43,22 @@ docker run --rm hello-world
 One command downloads the newest release, pulls the display image and sets everything up. On the Pi:
 
 ```bash
-curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sh -s -- --kiosk
+curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sudo sh -s -- --kiosk
 ```
 
-It asks for your sudo password once (it writes systemd units). The options:
+It needs root (that is the `sudo`): it installs into `/usr/local` and `/etc`, the standard places for a service, and writes the systemd units. Run it from the login of the user whose desktop shows the display, or add `--user NAME`. The options:
 
 | Option       | Meaning                                                                                                          | Default                         |
 | ------------ | ---------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | `--env`      | `prod` or `staging` (staging shows a STAGING tag and uses the staging site)                                      | `prod`                          |
 | `--api-url`  | where the cloud is, `https://host` with no path; a phone scanning the QR code opens the same address            | the site that goes with `--env` |
-| `--port`     | the port the display listens on                                                                                  | `80`                            |
+| `--port`     | the port on this machine (the display listens on `127.0.0.1` only: nothing else on the network can reach it)    | `80`                            |
 | `--kiosk`    | show the display full-screen at boot (Raspberry Pi OS desktop): turns on desktop autologin, runs the kiosk service | off                             |
-| `--dir`      | where to install (a plain path, no spaces)                                                                       | `~/famhomebase`                 |
+| `--user`     | whose desktop the kiosk runs in                                                                                  | the user who ran `sudo`         |
 | `--version`  | install that release instead of the newest                                                                       | the newest                      |
 | `--no-start` | set up, but start nothing                                                                                        |                                 |
 
-Running it again keeps your `.env` and changes only what you pass, so `--env prod` later moves a staging display to production. A display
+Running it again keeps your settings and changes only what you pass, so `--env prod` later moves a staging display to production. A display
 paired to the other environment is refused by the cloud and shows a new code by itself.
 
 ## 4. Pair it
@@ -71,47 +71,60 @@ every edit you make on the website.
 Things you change later are on the website: the display's layout and look, and the device's time zone, time format, night dimming and
 rotation (Devices, then the device's Settings).
 
-## 5. What runs where
+## 5. What is installed, and where
+
+| What | Where |
+| --- | --- |
+| The scripts and `VERSION` | `/usr/local/lib/famhomebase/` |
+| The `famhomebase` command | `/usr/local/bin/famhomebase` (`status`, `logs`, `update`, `version`, `settings`) |
+| Your settings | `/etc/famhomebase/famhomebase.env` (an update never changes it; the release's own example is `famhomebase.env.example` beside it) |
+| State: the saved copy for a way back, the kiosk's browser profile | `/var/lib/famhomebase/` |
+| This guide, the README and the licence | `/usr/local/share/doc/famhomebase/` |
+| The systemd units | `/etc/systemd/system/`: `famhomebase.service`, `famhomebase-update.service`, `famhomebase-update.timer`; the kiosk is the user unit `famhomebase-kiosk` |
 
 - **The container** (`ghcr.io/mcesolutionsinc/famhomebase-pi:<version>`): nginx serving the page and passing `/api/` on to the cloud. Started by
-  the `famhomebase` systemd unit through `scripts/run.sh`, which reads `.env` and `VERSION`. Logs: `journalctl -u famhomebase`.
-- **The kiosk** (`--kiosk`): the user service `famhomebase-kiosk` runs `scripts/kiosk.sh`: Chromium full-screen on the page, with a saved
-  profile (`FAMHOMEBASE_PROFILE`) that keeps the display's pairing and its last layout across restarts and power cuts. Check it with
-  `systemctl --user status famhomebase-kiosk`.
-- **The updater**: the `famhomebase-update` timer runs `scripts/update.sh` every few hours (section 7).
+  the `famhomebase` unit through `run.sh`, published on `127.0.0.1:80`. Logs: `famhomebase logs` (or `journalctl -u famhomebase`).
+- **The kiosk** (`--kiosk`): the user service `famhomebase-kiosk` runs `kiosk.sh`: Chromium full-screen on `http://localhost/`, with a saved
+  profile in `/var/lib/famhomebase/kiosk-profile` that keeps the display's pairing and its last layout across restarts and power cuts. Check it
+  with `systemctl --user status famhomebase-kiosk`.
+- **The updater**: the `famhomebase-update` timer runs `update.sh` every few hours (section 7).
+
+Everything in `/usr/local` is root's, so nothing that runs as root lives in a user's folder.
 
 A bad `FAMHOMEBASE_API_URL` stops the container at start with one JSON line saying why; the cloud's address is looked up again every 30
 seconds, and a start with no DNS still comes up (`docker logs famhomebase-display`).
 
-## 6. Settings in `.env`
+## 6. Settings
+
+The file is `/etc/famhomebase/famhomebase.env` (`famhomebase settings` prints the path).
 
 | Setting                | Meaning                                                                                 | Default                                |
 | ---------------------- | --------------------------------------------------------------------------------------- | -------------------------------------- |
 | `FAMHOMEBASE_ENV`      | `prod` or `staging`                                                                     | `prod`                                 |
 | `FAMHOMEBASE_API_URL`  | where the cloud is                                                                      | `https://famhomebase.mc-esolutions.ca` |
-| `FAMHOMEBASE_PORT`     | the port the display listens on                                                         | `80`                                   |
+| `FAMHOMEBASE_PORT`     | the port on this machine                                                                | `80`                                   |
+| `FAMHOMEBASE_BIND`     | the address it listens on. `0.0.0.0` only to look at the display from another computer while testing | `127.0.0.1`               |
 | `AUTO_UPDATE`          | `false` = only log that a release is available                                          | `true`                                 |
 | `CHECK_INTERVAL_HOURS` | how often the timer looks for a release (1 to 168); applies after the next host setup  | `6`                                    |
-| `FAMHOMEBASE_PROFILE`  | where the kiosk keeps the browser's saved data                                          | `~/.local/share/famhomebase-kiosk`     |
+| `FAMHOMEBASE_PROFILE`  | where the kiosk keeps the browser's saved data                                          | `/var/lib/famhomebase/kiosk-profile`   |
 | `FAMHOMEBASE_IMAGE`    | the image, without a tag (for one you built yourself)                                   | `ghcr.io/mcesolutionsinc/famhomebase-pi` |
 
-After changing `.env` run `sudo systemctl restart famhomebase` (and `systemctl --user restart famhomebase-kiosk` for the profile).
+After changing it run `sudo systemctl restart famhomebase` (and `systemctl --user restart famhomebase-kiosk` for the profile).
 
 **Screen rotation is not a setting here.** It is a setting of the device on the website, so it can be changed without touching the Pi.
 
 ## 7. Updating
 
 A release is the container image **and** a payload of host files (the scripts and the text of the units) with the same version number. Every few
-hours the timer runs `scripts/update.sh`, which:
+hours the timer runs `update.sh`, which:
 
 1. finds the newest `vX.Y.Z` release;
 2. downloads its payload and checks the sha256; pulls the image (if either fails, nothing has changed);
-3. saves the current files, swaps the new ones in, applies them (`host-setup.sh --update`: the units, a restart of the display and, if its files
-   changed, of the kiosk), and waits for the display to be healthy on the new version;
+3. saves the current files (in `/var/lib/famhomebase/rollback`), swaps the new ones in, applies them (`host-setup.sh --update`: the units, a
+   restart of the display and, if its files changed, of the kiosk), and waits for the display to be healthy on the new version;
 4. if anything fails, puts the old files back and restarts the old version, then leaves that release alone for a day.
 
-Your `.env` is never touched. See what it did with `journalctl -u famhomebase-update` (JSON lines). Run it now with
-`sudo sh ~/famhomebase/scripts/update.sh`.
+Your settings file is never touched. See what it did with `famhomebase logs` (JSON lines). Run it now with `famhomebase update`.
 
 ## 8. Try it on a computer, without systemd
 
@@ -132,11 +145,18 @@ Open <http://localhost:8080/>; stop it with Ctrl-C. (An image you built yourself
 - It picks up an edit from the website within seconds (live push), and checks at least once a minute.
 - Pairing codes change every 10 minutes. A display nobody sets up stops asking after 24 hours and says "Restart this device to set it up."
 
-## 10. Moving from an earlier install named "cloud"
+## 10. Moving from an install before 0.3.0
 
-Before 0.2.0 the display's units and folder had "cloud" in their names (`famhomebase-cloud`, `~/famhomebase-cloud`). Run this release's installer
-as above: it removes the older units for you (they would fight the new ones for the port). Then `rm -rf ~/famhomebase-cloud`. The kiosk service
-is taken over with `--kiosk`, and the saved browser profile (the pairing) is kept.
+Before 0.3.0 the display lived in a folder in the user's home (`~/famhomebase`, with its settings in `~/famhomebase/.env`) and the kiosk
+browser's saved data in `~/.local/share/famhomebase-kiosk`, on port 8080 or 80 and open to the whole network. Run this release's installer as
+above. It takes over the settings that still mean something (environment, address, auto-update), replaces the units, and starts the display
+on `127.0.0.1:80`. Then:
+
+- **Pair the display again.** The browser keeps the pairing for one address, and the address is now `http://localhost/`. Remove the old device
+  on the website's Devices page.
+- Once it works, delete the old folders: `rm -rf ~/famhomebase ~/.local/share/famhomebase-kiosk`. (From before 0.2.0, also `~/famhomebase-cloud`.)
+
+An install of 0.2.x does not update itself to 0.3.0 (the layout changed): it stays on 0.2.x until you run the installer.
 
 ## 11. Uninstalling
 
@@ -144,5 +164,6 @@ is taken over with `--kiosk`, and the saved browser profile (the pairing) is kep
 sudo systemctl disable --now famhomebase famhomebase-update.timer
 sudo rm /etc/systemd/system/famhomebase.service /etc/systemd/system/famhomebase-update.* && sudo systemctl daemon-reload
 systemctl --user disable --now famhomebase-kiosk   # if it was a kiosk
-rm -rf ~/famhomebase
+rm -f ~/.config/systemd/user/famhomebase-kiosk.service
+sudo rm -rf /usr/local/lib/famhomebase /usr/local/share/doc/famhomebase /usr/local/bin/famhomebase /etc/famhomebase /var/lib/famhomebase
 ```

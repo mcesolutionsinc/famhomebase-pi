@@ -2,7 +2,7 @@ name: Release
 
 # Runs when a vX.Y.Z tag lands on this repo. The app repo's release workflow publishes the image famhomebase-pi:X.Y.Z for the same version
 # first (tag vX.Y.Z there), so by the time this runs the image exists. It builds the host payload:
-#   famhomebase-pi-X.Y.Z.tar.gz         scripts, the .env example, docs (the update script applies it together with the image)
+#   famhomebase-pi-X.Y.Z.tar.gz         scripts/, doc/, famhomebase.env.example, VERSION (the update script applies it together with the image)
 #   famhomebase-pi-X.Y.Z.tar.gz.sha256  its checksum (the installer and the update script both verify it)
 #   install.sh                          the installer, at .../releases/latest/download/install.sh
 on:
@@ -27,6 +27,7 @@ jobs:
           sh tests/test-update.sh
           sh tests/test-install.sh
           sh tests/test-kiosk.sh
+          sh tests/test-famhomebase.sh
 
       - name: Check the image this release needs exists
         run: |
@@ -47,15 +48,14 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           name="famhomebase-pi-$version"
           stage=$(mktemp -d)
-          mkdir "$stage/scripts" "$stage/docs"
-          cp scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh "$stage/scripts/"
-          cp .env.example "$stage/.env.example"
-          cp README.md LICENSE "$stage"/
-          cp docs/INSTALL.md docs/TROUBLESHOOTING.md "$stage/docs/"
+          mkdir "$stage/scripts" "$stage/doc"
+          cp scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/famhomebase "$stage/scripts/"
+          cp famhomebase.env.example "$stage/famhomebase.env.example"
+          cp README.md LICENSE docs/INSTALL.md docs/TROUBLESHOOTING.md "$stage/doc/"
           echo "$version" > "$stage/VERSION"
           mkdir dist
           # named entries, not "." : an entry for the folder itself would reset the install folder's mode and owner when it is unpacked
-          tar -czf "dist/$name.tar.gz" -C "$stage" scripts docs .env.example README.md LICENSE VERSION
+          tar -czf "dist/$name.tar.gz" -C "$stage" scripts doc famhomebase.env.example VERSION
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           cp scripts/install.sh dist/install.sh
           ls -l dist
@@ -71,7 +71,7 @@ jobs:
             --notes "Install with one command (see docs/INSTALL.md for the options):
 
           \`\`\`
-          curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | sh -s -- --kiosk
+          curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | sudo sh -s -- --kiosk
           \`\`\`
 
           An install already running the update timer picks this release up by itself."

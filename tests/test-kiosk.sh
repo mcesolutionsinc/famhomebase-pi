@@ -10,10 +10,11 @@ check() { if eval "$2"; then ok "$1"; else bad "$1  [$2]"; fi; }
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 T="$WORK/inst"; BIN="$WORK/bin"; RT="$WORK/run"
-mkdir -p "$T/scripts" "$BIN" "$RT" "$WORK/tools"
+mkdir -p "$T" "$BIN" "$RT" "$WORK/tools" "$WORK/etc"
+ENVF="$WORK/etc/famhomebase.env"
 # Only the system tools the script really needs, so a chromium or wlr-randr that happens to be installed on this machine can't leak in.
 for tool in sed tail awk dirname mkdir rm; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
-cp "$HERE/../scripts/kiosk.sh" "$T/scripts/kiosk.sh"
+cp "$HERE/../scripts/kiosk.sh" "$T/kiosk.sh"
 LOG="$WORK/log"
 
 stub() { printf '#!/bin/sh\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }
@@ -25,48 +26,46 @@ stub wlr-randr 'if [ $# -eq 0 ]; then echo "HDMI-A-1 \"Some Monitor\""; echo "  
 
 run() { # extra env as args; returns the script's exit status
   : > "$LOG"
-  env PATH="$BIN:$WORK/tools" HOME="$WORK/home" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" "$@" /bin/sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1
+  env PATH="$BIN:$WORK/tools" HOME="$WORK/home" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" "$@" /bin/sh "$T/kiosk.sh" > "$WORK/out" 2>&1
 }
 touch "$RT/wayland-0" # the desktop is up
 mkdir -p "$WORK/home"
 
-rm -f "$T/.env"; run
+rm -f "$ENVF"; run
 check "defaults: port 80, no port in the address, the kiosk flag" 'grep -q "^chromium .*http://localhost/?kiosk=1\$" "$LOG" && grep -q "^curl .*http://localhost/\$" "$LOG"'
 check "the browser flags: Wayland, kiosk, no dialogs, no first-run, no keyring" 'grep -q "ozone-platform=wayland" "$LOG" && grep -q -- "--kiosk" "$LOG" && grep -q "noerrdialogs" "$LOG" && grep -q "no-first-run" "$LOG" && grep -q "password-store=basic" "$LOG"'
-check "a saved profile of its own, under the home folder by default, and no restore bubble" 'grep -q -- "--user-data-dir=$WORK/home/.local/share/famhomebase-kiosk" "$LOG" && grep -q -- "--hide-crash-restore-bubble" "$LOG" && [ -d "$WORK/home/.local/share/famhomebase-kiosk" ]'
+check "a saved profile of its own, in the state folder by default, and no restore bubble" 'grep -q -- "--user-data-dir=$WORK/state/kiosk-profile" "$LOG" && grep -q -- "--hide-crash-restore-bubble" "$LOG" && [ -d "$WORK/state/kiosk-profile" ]'
 check "no rotation setting: the screen is left alone" '! grep -q "^wlr-randr" "$LOG"'
 
-printf 'FAMHOMEBASE_PORT=8080\n' > "$T/.env"; run
+printf 'FAMHOMEBASE_PORT=8080\n' > "$ENVF"; run
 check "the port comes from .env (and the wait uses it too)" 'grep -q "^chromium .*http://localhost:8080/?kiosk=1\$" "$LOG" && grep -q "^curl .*http://localhost:8080/\$" "$LOG"'
-printf 'FAMHOMEBASE_PORT=abc\n' > "$T/.env"; run
+printf 'FAMHOMEBASE_PORT=abc\n' > "$ENVF"; run
 check "a junk port falls back to 80" 'grep -q "http://localhost/?kiosk=1" "$LOG"'
-printf 'AUTO_UPDATE=true\nFAMHOMEBASE_PORT=81\nFAMHOMEBASE_PORT=8081\n' > "$T/.env"; run
+printf 'AUTO_UPDATE=true\nFAMHOMEBASE_PORT=81\nFAMHOMEBASE_PORT=8081\n' > "$ENVF"; run
 check "the last setting wins when .env repeats one" 'grep -q "localhost:8081/?kiosk=1" "$LOG"'
 
-printf 'FAMHOMEBASE_PROFILE=%s/elsewhere\n' "$WORK" > "$T/.env"; run
+printf 'FAMHOMEBASE_PROFILE=%s/elsewhere\n' "$WORK" > "$ENVF"; run
 check "the profile folder comes from .env" 'grep -q -- "--user-data-dir=$WORK/elsewhere " "$LOG" && [ -d "$WORK/elsewhere" ]'
-mkdir -p "$WORK/home/.local/share/famhomebase-kiosk"; touch "$WORK/home/.local/share/famhomebase-kiosk/SingletonLock" "$WORK/home/.local/share/famhomebase-kiosk/SingletonCookie" "$WORK/home/.local/share/famhomebase-kiosk/Keep"; rm -f "$T/.env"; run
-check "stale Chromium lock files from a power cut are cleared, other profile files are kept" '[ ! -e "$WORK/home/.local/share/famhomebase-kiosk/SingletonLock" ] && [ ! -e "$WORK/home/.local/share/famhomebase-kiosk/SingletonCookie" ] && [ -e "$WORK/home/.local/share/famhomebase-kiosk/Keep" ]'
-mkdir -p "$WORK/home/.local/share/famhomebase-kiosk/WidevineCdm/4.10.3112.0"; touch "$WORK/home/.local/share/famhomebase-kiosk/WidevineCdm/4.10.3112.0/manifest.json" "$WORK/home/.local/share/famhomebase-kiosk/Keep"; run
-check "a Widevine component left in the profile (it makes the next start crash on a Pi) is dropped, and the rest of the profile is kept" '[ ! -e "$WORK/home/.local/share/famhomebase-kiosk/WidevineCdm" ] && [ -e "$WORK/home/.local/share/famhomebase-kiosk/Keep" ]'
+mkdir -p "$WORK/state/kiosk-profile"; touch "$WORK/state/kiosk-profile/SingletonLock" "$WORK/state/kiosk-profile/SingletonCookie" "$WORK/state/kiosk-profile/Keep"; rm -f "$ENVF"; run
+check "stale Chromium lock files from a power cut are cleared, other profile files are kept" '[ ! -e "$WORK/state/kiosk-profile/SingletonLock" ] && [ ! -e "$WORK/state/kiosk-profile/SingletonCookie" ] && [ -e "$WORK/state/kiosk-profile/Keep" ]'
+mkdir -p "$WORK/state/kiosk-profile/WidevineCdm/4.10.3112.0"; touch "$WORK/state/kiosk-profile/WidevineCdm/4.10.3112.0/manifest.json" "$WORK/state/kiosk-profile/Keep"; run
+check "a Widevine component left in the profile (it makes the next start crash on a Pi) is dropped, and the rest of the profile is kept" '[ ! -e "$WORK/state/kiosk-profile/WidevineCdm" ] && [ -e "$WORK/state/kiosk-profile/Keep" ]'
 check "component downloads are switched off, so it does not come back" 'grep -q -- "--disable-component-update" "$LOG"'
-env -u HOME PATH="$BIN:$WORK/tools" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" /bin/sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1; rc=$?
-check "no HOME and no profile setting: says so rather than keeping the profile somewhere that is wiped" '[ $rc -ne 0 ] && grep -q "HOME is not set" "$WORK/out"'
-printf 'FAMHOMEBASE_PROFILE=relative/x\n' > "$T/.env"; run; rc=$?
+printf 'FAMHOMEBASE_PROFILE=relative/x\n' > "$ENVF"; run; rc=$?
 check "a profile path that is not absolute is refused" '[ $rc -ne 0 ] && grep -q "must be a full path" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
-printf 'FAMHOMEBASE_PROFILE=/proc/nope/x\n' > "$T/.env"; run; rc=$?
+printf 'FAMHOMEBASE_PROFILE=/proc/nope/x\n' > "$ENVF"; run; rc=$?
 check "a profile folder that cannot be made: says so, does not open the browser" '[ $rc -ne 0 ] && grep -q "cannot make the profile folder" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
 
-printf 'FAMHOMEBASE_ROTATE=90\n' > "$T/.env"; run
+printf 'FAMHOMEBASE_ROTATE=90\n' > "$ENVF"; run
 check "rotation: the first display wlr-randr lists is rotated" 'grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$LOG"'
 check "rotation happens before the browser opens" '[ "$(grep -n "^wlr-randr" "$LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n "^chromium" "$LOG" | head -1 | cut -d: -f1)" ]'
-printf 'FAMHOMEBASE_ROTATE=270\nFAMHOMEBASE_OUTPUT=DSI-1\n' > "$T/.env"; run
+printf 'FAMHOMEBASE_ROTATE=270\nFAMHOMEBASE_OUTPUT=DSI-1\n' > "$ENVF"; run
 check "rotation: FAMHOMEBASE_OUTPUT picks the display" 'grep -q "^wlr-randr --output DSI-1 --transform 270\$" "$LOG"'
-printf 'FAMHOMEBASE_ROTATE=normal\n' > "$T/.env"; run
+printf 'FAMHOMEBASE_ROTATE=normal\n' > "$ENVF"; run
 check "rotation: normal is a valid value (puts it back)" 'grep -q "^wlr-randr --output HDMI-A-1 --transform normal\$" "$LOG"'
-printf 'FAMHOMEBASE_ROTATE=45\n' > "$T/.env"; run
+printf 'FAMHOMEBASE_ROTATE=45\n' > "$ENVF"; run
 check "rotation: an invalid value is ignored, with a message, and the display still opens" '! grep -q "^wlr-randr" "$LOG" && grep -q "ignoring FAMHOMEBASE_ROTATE" "$WORK/out" && grep -q "^chromium" "$LOG"'
-printf 'FAMHOMEBASE_ROTATE=90\n' > "$T/.env"; rm -f "$BIN/wlr-randr"; run
+printf 'FAMHOMEBASE_ROTATE=90\n' > "$ENVF"; rm -f "$BIN/wlr-randr"; run
 check "rotation: no wlr-randr installed says so, and the display still opens" 'grep -q "wlr-randr is not installed" "$WORK/out" && grep -q "^chromium" "$LOG"'
 stub wlr-randr 'echo none >/dev/null'; run
 check "rotation: no display found says so, and the display still opens" 'grep -q "no display was found" "$WORK/out" && grep -q "^chromium" "$LOG"'
@@ -74,7 +73,7 @@ stub wlr-randr 'if [ $# -eq 0 ]; then echo "HDMI-A-1 x"; else exit 1; fi'; run
 check "rotation: a failed rotate is reported but does not stop the display" 'grep -q "could not rotate HDMI-A-1" "$WORK/out" && grep -q "^chromium" "$LOG"'
 
 # waiting for the desktop
-rm -f "$RT/wayland-0" "$T/.env"; run; rc=$?
+rm -f "$RT/wayland-0" "$ENVF"; run; rc=$?
 check "no desktop session: gives up after a while with a clear message, so systemd can retry" '[ $rc -ne 0 ] && grep -q "no desktop session found" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
 touch "$RT/wayland-0"
 

@@ -1,0 +1,35 @@
+#!/bin/sh
+# The `famhomebase` command (installed in /usr/local/bin as a link to this file).
+#
+#   famhomebase version    the installed version
+#   famhomebase status     the version, whether the display and the update timer are running, and whether the display is healthy
+#   famhomebase logs       the last log lines of the display and of the updater (journalctl)
+#   famhomebase update     look for a release now and install it (asks for sudo)
+#   famhomebase settings   where the settings file is
+set -u
+
+LIB=$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)
+ETC_DIR=${FAMHOMEBASE_ETC_DIR:-/etc/famhomebase}
+SYSTEMCTL=${SYSTEMCTL:-systemctl}
+DOCKER=${DOCKER:-docker}
+JOURNALCTL=${JOURNALCTL:-journalctl}
+
+version() { tr -d ' \r\n' < "$LIB/VERSION" 2>/dev/null || echo unknown; }
+
+case "${1:-status}" in
+  version) version; echo ;;
+  status)
+    echo "FamHomeBase display $(version)"
+    for u in famhomebase.service famhomebase-update.timer; do
+      printf '  %-28s %s\n' "$u" "$("$SYSTEMCTL" is-active "$u" 2>/dev/null || true)"
+    done
+    health=$("$DOCKER" inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' famhomebase-display 2>/dev/null || echo "not running")
+    printf '  %-28s %s\n' "display container" "$health"
+    ;;
+  logs) exec "$JOURNALCTL" -u famhomebase -u famhomebase-update -n "${2:-100}" --no-pager ;;
+  update)
+    if [ "$(id -u)" -eq 0 ]; then exec sh "$LIB/update.sh"; else exec sudo sh "$LIB/update.sh"; fi ;;
+  settings) echo "$ETC_DIR/famhomebase.env" ;;
+  -h|--help|help) sed -n '2,9p' "$0" ;;
+  *) echo "famhomebase: unknown command '$1' (try: version, status, logs, update, settings)" >&2; exit 2 ;;
+esac

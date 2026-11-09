@@ -15,6 +15,7 @@ cat > "$WORK/bin/systemctl" <<'STUB'
 #!/bin/sh
 echo "system: $*" >> "$CTL_LOG"
 [ "${FAIL_RELOAD:-}" = 1 ] && [ "$1" = daemon-reload ] && exit 1
+case "$*" in *is-active*) [ "${ACTIVE:-}" = 1 ]; exit $? ;; esac
 exit 0
 STUB
 cat > "$WORK/bin/runuser" <<'STUB'
@@ -33,45 +34,53 @@ echo "raspi-config $*" >> "$CTL_LOG"
 STUB
 chmod +x "$WORK/bin/"*
 export PATH="$WORK/bin:$PATH" CTL_LOG="$WORK/ctl.log"
+export FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
 export FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_SYSTEMD_DIR="$WORK/system" FAMHOMEBASE_USER_HOME="$WORK/home" FAMHOMEBASE_NM_CONF_DIR="$WORK/nm" FAMHOMEBASE_NET_DIR="$WORK/net"
 export SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser"
 
 fresh() {
-  rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net"; : > "$CTL_LOG"
-  mkdir -p "$WORK/inst/scripts" "$WORK/home" "$WORK/nm"
-  cp "$SCRIPT" "$WORK/inst/scripts/"; echo '#!/bin/sh' > "$WORK/inst/scripts/kiosk.sh"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$WORK/inst/.env"
+  rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin"; : > "$CTL_LOG"
+  mkdir -p "$WORK/inst" "$WORK/home" "$WORK/nm" "$WORK/etc"
+  cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
 }
-setup() { sh "$WORK/inst/scripts/host-setup.sh" "$@" > "$WORK/out" 2> "$WORK/err"; }
-INST="$WORK/inst"; UNIT="$WORK/system"; KU="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
+setup() { sh "$WORK/inst/host-setup.sh" "$@" > "$WORK/out" 2> "$WORK/err"; }
+INST="$WORK/inst"; ETC="$WORK/etc"; STATE="$WORK/state"; BIN="$WORK/usrbin"; UNIT="$WORK/system"; KU="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
 
 fresh; setup; st=$?
-check "writes the display unit: runs run.sh, restarts always, after docker" "[ $st = 0 ] && grep -Fxq 'ExecStart=/bin/sh \"$INST/scripts/run.sh\"' $UNIT/famhomebase.service && grep -q '^Restart=always' $UNIT/famhomebase.service && grep -q '^After=docker.service' $UNIT/famhomebase.service"
+check "writes the display unit: runs run.sh, restarts always, after docker" "[ $st = 0 ] && grep -Fxq 'ExecStart=/bin/sh \"$INST/run.sh\"' $UNIT/famhomebase.service && grep -q '^Restart=always' $UNIT/famhomebase.service && grep -q '^After=docker.service' $UNIT/famhomebase.service"
 check "the folder is quoted in the unit, so a path with odd characters still starts" "grep -q 'ExecStart=/bin/sh \"' $UNIT/famhomebase.service"
 check "the display unit removes the container when it stops" "grep -q 'ExecStopPost=.*docker rm -f famhomebase-display' $UNIT/famhomebase.service"
-check "writes the update service and a timer every 6 hours by default" "grep -Fxq 'ExecStart=/bin/sh \"$INST/scripts/update.sh\"' $UNIT/famhomebase-update.service && grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-update.timer"
-check "enables and starts the display and the timer" "grep -q 'enable famhomebase.service famhomebase-update.timer' \$CTL_LOG && grep -q 'start famhomebase.service' \$CTL_LOG && grep -q 'start famhomebase-update.timer' \$CTL_LOG"
+check "writes the update service and a timer every 6 hours by default" "grep -Fxq 'ExecStart=/bin/sh \"$INST/update.sh\"' $UNIT/famhomebase-update.service && grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-update.timer"
+check "enables and starts the display and the timer" "grep -q 'enable famhomebase.service famhomebase-update.timer' \$CTL_LOG && grep -q 'system: start famhomebase.service' \$CTL_LOG && ! grep -q 'system: restart famhomebase.service' \$CTL_LOG && grep -q 'start famhomebase-update.timer' \$CTL_LOG"
 check "no kiosk without --kiosk" "[ ! -e $KU ] && ! grep -q '^user:' \$CTL_LOG && ! grep -q raspi-config \$CTL_LOG"
 
-fresh; echo 'CHECK_INTERVAL_HOURS=12' > "$INST/.env"; setup
+check "makes the state folder and the famhomebase command (a link to the one in the install)" "[ -d $STATE ] && [ \"\$(readlink $BIN/famhomebase)\" = $INST/famhomebase ]"
+check "no kiosk profile folder without --kiosk" "[ ! -e $STATE/kiosk-profile ]"
+fresh; ACTIVE=1 setup
+check "installing over a running display restarts it, so it runs what was just written" "grep -q 'system: restart famhomebase.service' \$CTL_LOG"
+fresh; setup --kiosk
+check "--kiosk makes the kiosk's browser profile folder in the state folder, for the kiosk user" "[ -d $STATE/kiosk-profile ] && [ \$(stat -c %U $STATE/kiosk-profile) = \$(id -un) ]"
+
+fresh; echo 'CHECK_INTERVAL_HOURS=12' > "$ETC/famhomebase.env"; setup
 check "the timer follows CHECK_INTERVAL_HOURS" "grep -q '^OnUnitActiveSec=12h' $UNIT/famhomebase-update.timer"
-fresh; echo 'CHECK_INTERVAL_HOURS=9999' > "$INST/.env"; setup
+fresh; echo 'CHECK_INTERVAL_HOURS=9999' > "$ETC/famhomebase.env"; setup
 check "an interval out of range falls back to 6" "grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-update.timer"
 
 fresh; setup --kiosk; st=$?
-check "--kiosk writes the kiosk unit for this install's script and turns on desktop autologin" "[ $st = 0 ] && grep -Fxq 'ExecStart=\"$INST/scripts/kiosk.sh\"' $KU && grep -q 'raspi-config nonint do_boot_behaviour B4' \$CTL_LOG"
+check "--kiosk writes the kiosk unit for this install's script and turns on desktop autologin" "[ $st = 0 ] && grep -Fxq 'ExecStart=\"$INST/kiosk.sh\"' $KU && grep -q 'raspi-config nonint do_boot_behaviour B4' \$CTL_LOG"
 check "--kiosk enables and starts the kiosk in the user's systemd, and switches off an older install's update watcher" "grep -q 'user: systemctl --user enable --now famhomebase-kiosk.service' \$CTL_LOG && grep -q 'disable --now famhomebase-host.path' \$CTL_LOG"
 
 fresh; mkdir -p "$(dirname "$KU")"; printf '[Service]\nExecStart=/home/pi/famhomebase-pi/scripts/kiosk.sh\n' > "$KU"; setup
 check "without --kiosk another install's kiosk service is left alone" "grep -q 'famhomebase-pi/scripts/kiosk.sh' $KU && ! grep -q '^user:' \$CTL_LOG && grep -q 'left the kiosk service alone' \$WORK/out"
 setup --kiosk
-check "with --kiosk it is taken over" "grep -Fxq 'ExecStart=\"$INST/scripts/kiosk.sh\"' $KU"
+check "with --kiosk it is taken over" "grep -Fxq 'ExecStart=\"$INST/kiosk.sh\"' $KU"
 
 fresh; rm -rf "${WORK:?}/home"; mkdir "$WORK/home"; setup --kiosk
 check "folders made on the way to the user's kiosk unit are the user's (not left as root's)" "[ \$(stat -c %U $WORK/home/.config/systemd/user) = \$(id -un) ]"
 
 fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
 check "an update that changes nothing does not restart the kiosk, but restarts the display" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG && grep -q 'system: restart famhomebase.service' \$CTL_LOG"
-echo '# changed' >> "$INST/scripts/kiosk.sh"; : > "$CTL_LOG"; setup --kiosk --update
+echo '# changed' >> "$INST/kiosk.sh"; : > "$CTL_LOG"; setup --kiosk --update
 check "an update that changes the kiosk script restarts the kiosk" "grep -q 'user: systemctl --user restart famhomebase-kiosk.service' \$CTL_LOG"
 : > "$CTL_LOG"; setup --kiosk --update
 check "and not again the next time" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG"
@@ -89,10 +98,10 @@ check "and with none of the older units there is nothing to remove" "! grep -q '
 # not root: it runs itself again under sudo, and must hand sudo the same options (they used to be lost, so --kiosk did nothing)
 printf '#!/bin/sh\necho "sudo $*" >> "$CTL_LOG"\n' > "$WORK/bin/sudo"; chmod +x "$WORK/bin/sudo"
 printf '#!/bin/sh\ncase "$1" in -un) echo tester ;; *) echo 1000 ;; esac\n' > "$WORK/bin/id"; chmod +x "$WORK/bin/id"
-fresh; env -u FAMHOMEBASE_NO_ROOT sh "$INST/scripts/host-setup.sh" --kiosk --no-start > "$WORK/out" 2>&1
-check "run as a normal user, it runs itself again under sudo with the same options and the user's name" "grep -q \"^sudo sh $INST/scripts/host-setup.sh --kiosk --no-start --user tester\\$\" \$CTL_LOG"
-env -u FAMHOMEBASE_NO_ROOT sh "$INST/scripts/host-setup.sh" > "$WORK/out" 2>&1; env -u FAMHOMEBASE_NO_ROOT sh "$INST/scripts/host-setup.sh" --update >/dev/null 2>&1
-check "with no options it passes none on, and --update is kept" "grep -q '^sudo sh $INST/scripts/host-setup.sh --user tester\$' \$CTL_LOG && grep -q '^sudo sh $INST/scripts/host-setup.sh --update --user tester\$' \$CTL_LOG"
+fresh; env -u FAMHOMEBASE_NO_ROOT sh "$INST/host-setup.sh" --kiosk --no-start > "$WORK/out" 2>&1
+check "run as a normal user, it runs itself again under sudo with the same options and the user's name" "grep -q \"^sudo sh $INST/host-setup.sh --kiosk --no-start --user tester\\$\" \$CTL_LOG"
+env -u FAMHOMEBASE_NO_ROOT sh "$INST/host-setup.sh" > "$WORK/out" 2>&1; env -u FAMHOMEBASE_NO_ROOT sh "$INST/host-setup.sh" --update >/dev/null 2>&1
+check "with no options it passes none on, and --update is kept" "grep -q '^sudo sh $INST/host-setup.sh --user tester\$' \$CTL_LOG && grep -q '^sudo sh $INST/host-setup.sh --update --user tester\$' \$CTL_LOG"
 rm -f "$WORK/bin/sudo" "$WORK/bin/id"
 
 fresh; setup --kiosk --no-start
