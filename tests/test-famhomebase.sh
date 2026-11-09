@@ -35,6 +35,13 @@ check "logs: a number picks how many" "echo \"$out\" | grep -q -- '-n 20 '"
 out=$(sh "$F" update)
 check "update: runs the update script (through sudo when not root)" "echo \"$out\" | grep -q 'update.sh ran' && { [ \$(id -u) = 0 ] || echo \"$out\" | grep -q '^sudo sh '; }"
 check "settings: where the settings file is" "[ \"\$(sh $F settings)\" = $WORK/etc/famhomebase.env ]"
+sh "$F" help > "$WORK/help"
+check "help: the command list, without code after it" "grep -q 'famhomebase update' $WORK/help && ! grep -q '^set ' $WORK/help"
+sh "$F" logs -f > "$WORK/out" 2>&1; st=$?
+check "logs: something that is not a number of lines is refused" "[ $st = 2 ] && grep -q 'number of lines' $WORK/out"
+printf '#!/bin/sh\necho "permission denied while trying to connect to the Docker daemon socket" >&2; exit 1\n' > "$WORK/bin/docker-nope"; chmod +x "$WORK/bin/docker-nope"
+out=$(DOCKER="$WORK/bin/docker-nope" sh "$F" status)
+check "status: no access to docker is said, not shown as 'not running'" "echo \"$out\" | grep -q 'no access to docker' && ! echo \"$out\" | grep -q 'not running'"
 sh "$F" bogus > "$WORK/out" 2>&1; st=$?
 check "an unknown command is refused with the list" "[ $st = 2 ] && grep -q 'unknown command' $WORK/out"
 

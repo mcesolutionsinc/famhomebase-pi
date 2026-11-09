@@ -28,7 +28,7 @@ echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { jlog error "VERSION i
 PORT=$(getenv FAMHOMEBASE_PORT); PORT=${PORT:-80}
 echo "$PORT" | grep -Eq '^[0-9]+$' && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || { jlog error "FAMHOMEBASE_PORT '$PORT' is not a port number"; exit 1; }
 BIND=$(getenv FAMHOMEBASE_BIND); BIND=${BIND:-127.0.0.1}
-echo "$BIND" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || { jlog error "FAMHOMEBASE_BIND '$BIND' is not an IPv4 address like 127.0.0.1"; exit 1; }
+echo "$BIND" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' && ! echo "$BIND" | tr . '\n' | grep -Eq '^(25[6-9]|2[6-9][0-9]|[3-9][0-9][0-9])$' || { jlog error "FAMHOMEBASE_BIND '$BIND' is not an IPv4 address like 127.0.0.1"; exit 1; }
 API=$(getenv FAMHOMEBASE_API_URL); API=${API:-https://famhomebase.mc-esolutions.ca}
 ENVNAME=$(getenv FAMHOMEBASE_ENV); ENVNAME=${ENVNAME:-prod}
 case "$ENVNAME" in prod|staging) ;; *) jlog error "FAMHOMEBASE_ENV must be prod or staging (got '$ENVNAME')"; exit 1 ;; esac

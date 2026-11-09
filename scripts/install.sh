@@ -48,7 +48,7 @@ while [ $# -gt 0 ]; do
     --user) [ $# -ge 2 ] && [ -n "$2" ] || die "--user needs a name"; USER_NAME=$2; shift ;;
     --kiosk) KIOSK=1 ;;
     --no-start) START=0 ;;
-    -h|--help) sed -n '2,28p' "$0" 2>/dev/null || true; exit 0 ;;
+    -h|--help) sed -n '2,/^set /{/^set /!p}' "$0" 2>/dev/null || true; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
   shift
@@ -97,16 +97,18 @@ expected=$(cut -d' ' -f1 < "$tmp/$name.tar.gz.sha256")
 actual=$(sha256sum "$tmp/$name.tar.gz" | cut -d' ' -f1)
 [ -n "$expected" ] && [ "$expected" = "$actual" ] || die "checksum mismatch: the download is damaged or not what was published. Nothing was installed."
 mkdir "$tmp/new" && tar --no-same-owner -xzf "$tmp/$name.tar.gz" -C "$tmp/new" || die "could not unpack release $WANT"
-[ -f "$tmp/new/scripts/run.sh" ] && [ -f "$tmp/new/scripts/host-setup.sh" ] && [ "$(tr -d ' \r\n' < "$tmp/new/VERSION" 2>/dev/null)" = "$WANT" ] \
+[ -f "$tmp/new/lib/run.sh" ] && [ -f "$tmp/new/lib/host-setup.sh" ] && [ "$(tr -d ' \r\n' < "$tmp/new/VERSION" 2>/dev/null)" = "$WANT" ] \
   || die "the download is not a valid $WANT release. Nothing was installed."
 
 existing=""
 [ -f "$LIB_DIR/VERSION" ] && existing=$(tr -d ' \r\n' < "$LIB_DIR/VERSION")
-# the same placing the update script does (a release is scripts/, doc/, famhomebase.env.example and VERSION)
-rm -rf "${LIB_DIR:?}" "${DOC_DIR:?}"
-mkdir -p "$LIB_DIR" "$DOC_DIR" "$ETC_DIR" "$STATE_DIR" || die "could not make the install folders"
-cp -R "$tmp/new/scripts/." "$LIB_DIR/" && cp -f "$tmp/new/VERSION" "$LIB_DIR/VERSION" || die "could not install the scripts"
-[ -d "$tmp/new/doc" ] && cp -R "$tmp/new/doc/." "$DOC_DIR/"
+# the same placing the update script does (a release is lib/, doc/, famhomebase.env.example and VERSION). The new files are made complete
+# beside the old ones first and then swapped in, so a full disk or a bad card leaves the working install as it was.
+mkdir -p "$ETC_DIR" "$STATE_DIR" "$(dirname "$LIB_DIR")" "$(dirname "$DOC_DIR")" || die "could not make the install folders"
+rm -rf "${LIB_DIR:?}.new" "${DOC_DIR:?}.new"
+mkdir "$LIB_DIR.new" "$DOC_DIR.new" && cp -R "$tmp/new/lib/." "$LIB_DIR.new/" && cp -f "$tmp/new/VERSION" "$LIB_DIR.new/VERSION" \
+  && { [ ! -d "$tmp/new/doc" ] || cp -R "$tmp/new/doc/." "$DOC_DIR.new/"; } || { rm -rf "$LIB_DIR.new" "$DOC_DIR.new"; die "could not copy the new files (is the disk full?). Nothing was changed."; }
+rm -rf "${LIB_DIR:?}" "${DOC_DIR:?}" && mv "$LIB_DIR.new" "$LIB_DIR" && mv "$DOC_DIR.new" "$DOC_DIR" || die "could not put the new files in place"
 cp -f "$tmp/new/famhomebase.env.example" "$ETC_DIR/famhomebase.env.example"
 if [ -n "$existing" ]; then say "Updated $existing -> $WANT"; else say "Installed $WANT"; fi
 

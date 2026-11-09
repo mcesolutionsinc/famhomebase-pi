@@ -45,12 +45,12 @@ REPO=mcesolutionsinc/famhomebase-pi
 # publish <version> [badsum|badpayload]: a release in the fake GitHub. Its host-setup records that it ran, and fails if FAIL_HOST is set.
 publish() {
   v=$1
-  pay="$WORK/pay-$v"; rm -rf "$pay"; mkdir -p "$pay/scripts" "$pay/doc"
+  pay="$WORK/pay-$v"; rm -rf "$pay"; mkdir -p "$pay/lib" "$pay/doc"
   echo "$v" > "$pay/VERSION"
   echo "release $v" > "$pay/doc/README.md"
   echo "env example $v" > "$pay/famhomebase.env.example"
-  echo "run $v" > "$pay/scripts/run.sh"
-  cat > "$pay/scripts/host-setup.sh" <<HS
+  echo "run $v" > "$pay/lib/run.sh"
+  cat > "$pay/lib/host-setup.sh" <<HS
 #!/bin/sh
 echo "host-setup $v \$*" >> "$WORK/host.log"
 [ -z "\${FAIL_HOST:-}" ]
@@ -113,6 +113,9 @@ check "offline (no release list): a warning, exit 0, nothing changed" "[ $st = 0
 fresh 0.1.0; publish 0.2.0 badsum; list v0.2.0; update; st=$?
 check "a bad checksum changes nothing" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'old run 0.1.0' $L/run.sh && grep -q 'checksum mismatch' \$WORK/out && ! grep -q '^pull' \$DOCKER_LOG"
 
+fresh 0.1.0; publish 0.2.0; rm -rf "$WORK/pay-0.2.0/lib"; mkdir -p "$WORK/pay-0.2.0/scripts"; cp "$WORK/pay-0.1.0/lib/run.sh" "$WORK/pay-0.2.0/scripts/run.sh" 2>/dev/null; d="$FIXTURES/$REPO/releases/download/v0.2.0"; tar -czf "$d/famhomebase-pi-0.2.0.tar.gz" -C "$WORK/pay-0.2.0" scripts doc famhomebase.env.example VERSION; (cd "$d" && sha256sum famhomebase-pi-0.2.0.tar.gz > famhomebase-pi-0.2.0.tar.gz.sha256); list v0.2.0; update; st=$?
+check "a payload in the old shape (scripts/ and no lib/) is refused and nothing is changed" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'not a valid 0.2.0 release' \$WORK/out"
+
 fresh 0.1.0; publish 0.2.0 badpayload; list v0.2.0; update; st=$?
 check "a payload whose VERSION is not the release's is refused" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'not a valid 0.2.0 release' \$WORK/out"
 
@@ -129,7 +132,7 @@ RETRY_AFTER_FAILURE_SECONDS=0 update
 check "and after the wait it tries again, and succeeds" "[ \"\$(version)\" = 0.2.0 ] && [ ! -e $S/update-failed ]"
 
 fresh 0.1.0; publish 0.2.0; list v0.2.0; update
-check "nothing it wrote is in anyone's home folder: the install, the docs, the settings example and the saved copy are all in the system folders it was given" "[ -f $L/run.sh ] && [ -f $S/rollback/VERSION ] && [ -f $S/rollback/scripts/run.sh ] && grep -q 'old run 0.1.0' $S/rollback/scripts/run.sh && grep -q 'old docs 0.1.0' $S/rollback/doc/INSTALL.md"
+check "nothing it wrote is in anyone's home folder: the install, the docs, the settings example and the saved copy are all in the system folders it was given" "[ -f $L/run.sh ] && [ -f $S/rollback/VERSION ] && [ -f $S/rollback/lib/run.sh ] && grep -q 'old run 0.1.0' $S/rollback/lib/run.sh && grep -q 'old docs 0.1.0' $S/rollback/doc/INSTALL.md"
 fresh 0.1.0; publish 0.2.0; list v0.2.0; HEALTH=unhealthy update
 check "a rollback puts back the scripts, docs and settings example, and leaves the settings file alone" "grep -q 'old run 0.1.0' $L/run.sh && grep -q 'old docs 0.1.0' $D/INSTALL.md && grep -q 'old example 0.1.0' $E/famhomebase.env.example && grep -q 'FAMHOMEBASE_ENV=staging' $E/famhomebase.env"
 

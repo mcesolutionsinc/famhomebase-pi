@@ -39,6 +39,8 @@ fresh 0.1.0; printf 'FAMHOMEBASE_BIND=0.0.0.0\n' > "$ENVF"; run; st=$?
 check "FAMHOMEBASE_BIND opens it to the network (only for looking at it from another computer while testing)" "[ $st = 0 ] && grep -q -- '-p 0.0.0.0:80:8080' \$DOCKER_LOG"
 fresh 0.1.0; echo 'FAMHOMEBASE_BIND=localhost; rm -rf /' > "$ENVF"; run; st=$?
 check "a bind address that is not an IPv4 address stops it with a JSON error and starts nothing" "[ $st != 0 ] && grep -q 'not an IPv4 address' \$WORK/out && ! grep -q '^run ' \$DOCKER_LOG"
+fresh 0.1.0; echo 'FAMHOMEBASE_BIND=999.1.1.1' > "$ENVF"; run; st=$?
+check "an address with a number over 255 is refused too" "[ $st != 0 ] && grep -q 'not an IPv4 address' \$WORK/out && ! grep -q '^run ' \$DOCKER_LOG"
 fresh 0.1.0; echo 'FAMHOMEBASE_PORT=99999' > "$ENVF"; run; st=$?
 check "a bad port stops it with a JSON error and starts nothing" "[ $st != 0 ] && grep -q '\"level\":\"error\"' \$WORK/out && ! grep -q '^run ' \$DOCKER_LOG"
 fresh 0.1.0; echo 'FAMHOMEBASE_ENV=dev' > "$ENVF"; run; st=$?

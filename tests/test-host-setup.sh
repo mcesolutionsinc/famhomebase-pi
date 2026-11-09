@@ -78,6 +78,11 @@ check "with --kiosk it is taken over" "grep -Fxq 'ExecStart=\"$INST/kiosk.sh\"' 
 fresh; rm -rf "${WORK:?}/home"; mkdir "$WORK/home"; setup --kiosk
 check "folders made on the way to the user's kiosk unit are the user's (not left as root's)" "[ \$(stat -c %U $WORK/home/.config/systemd/user) = \$(id -un) ]"
 
+fresh; mkdir -p "$(dirname "$KU")"; printf '[Service]\nExecStart="/home/pi/famhomebase/scripts/kiosk.sh"\n' > "$KU"; setup
+check "the kiosk unit of an install before 0.3.0 (script in ~/famhomebase/scripts) is moved to this install even without --kiosk" "grep -Fxq 'ExecStart=\"$INST/kiosk.sh\"' $KU"
+fresh; setup --kiosk --user tester; mkdir -p "$STATE/kiosk-profile"; touch "$STATE/kiosk-profile/Keep"; setup --update
+check "the kiosk's user is remembered, and the update (no sudo user, no --user) still handles the kiosk and the profile folder" "[ \"\$(cat $STATE/kiosk-user)\" = tester ] && [ -f $STATE/kiosk-profile/Keep ] && grep -q 'user: systemctl --user' \$CTL_LOG"
+
 fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
 check "an update that changes nothing does not restart the kiosk, but restarts the display" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG && grep -q 'system: restart famhomebase.service' \$CTL_LOG"
 echo '# changed' >> "$INST/kiosk.sh"; : > "$CTL_LOG"; setup --kiosk --update

@@ -50,7 +50,11 @@ if [ "$(id -u)" -ne 0 ] && [ -z "${FAMHOMEBASE_NO_ROOT:-}" ]; then
   exec sudo sh "$0" $ARGS --user "$USER_NAME"
 fi
 
-[ -n "$USER_NAME" ] || USER_NAME=${SUDO_USER:-root}
+# who the kiosk runs as: --user, else whoever ran sudo, else the user the last kiosk install named (the update timer runs this with
+# neither), else root
+[ -n "$USER_NAME" ] || USER_NAME=${SUDO_USER:-}
+[ -n "$USER_NAME" ] || USER_NAME=$(cat "$STATE_DIR/kiosk-user" 2>/dev/null || true)
+[ -n "$USER_NAME" ] || USER_NAME=root
 USER_HOME=${FAMHOMEBASE_USER_HOME:-$(getent passwd "$USER_NAME" | cut -d: -f6)}
 USER_ID=$(id -u "$USER_NAME" 2>/dev/null || echo 0)
 # a value as written in the settings file: a Windows line ending and one pair of quotes around it are not part of it
@@ -74,10 +78,6 @@ write_unit() { # file path, then the file's text on stdin; notes whether it chan
 # --- the state folder, the `famhomebase` command, and the kiosk's browser profile ----------------------------------------------------
 mkdir -p "$STATE_DIR" "$BIN_DIR" 2>/dev/null
 if [ -f "$LIB/famhomebase" ]; then ln -sf "$LIB/famhomebase" "$BIN_DIR/famhomebase" 2>/dev/null || jlog warn "could not make the famhomebase command in $BIN_DIR"; fi
-if [ "$KIOSK" -eq 1 ]; then
-  # the kiosk runs as the desktop user, so the profile (it holds the pairing) is theirs, not root's
-  mkdir -p "$STATE_DIR/kiosk-profile" 2>/dev/null && chown "$USER_NAME" "$STATE_DIR/kiosk-profile" 2>/dev/null || jlog warn "could not prepare the kiosk profile folder $STATE_DIR/kiosk-profile"
-fi
 
 # --- the kiosk's desktop session: log in to the desktop by itself ---------------------------------------------------------------------
 if [ "$KIOSK" -eq 1 ] && command -v raspi-config >/dev/null 2>&1; then
@@ -157,7 +157,8 @@ kiosk=0
 if [ "$KIOSK" -eq 1 ]; then
   kiosk=1
 elif [ -f "$kiosk_unit" ]; then
-  if grep -Fxq "ExecStart=\"$LIB/kiosk.sh\"" "$kiosk_unit"; then
+  # ours, or the one an install before 0.3.0 made (its script was in a folder called famhomebase in the user's home)
+  if grep -Fxq "ExecStart=\"$LIB/kiosk.sh\"" "$kiosk_unit" || grep -Eq '^ExecStart="[^"]*/famhomebase/scripts/kiosk\.sh"$' "$kiosk_unit"; then
     kiosk=1
   else
     jlog info "left the kiosk service alone: it belongs to another FamHomeBase install (use --kiosk to move it here)"
@@ -165,6 +166,10 @@ elif [ -f "$kiosk_unit" ]; then
 fi
 kiosk_changed=0
 if [ "$kiosk" -eq 1 ]; then
+  # the kiosk runs as the desktop user, so its browser profile (it holds the pairing) is theirs, not root's. Done on every run, so a
+  # profile left to another user or made by root is put right, and the user is remembered for the update timer (which has no sudo user).
+  mkdir -p "$STATE_DIR/kiosk-profile" 2>/dev/null && chown -R "$USER_NAME" "$STATE_DIR/kiosk-profile" 2>/dev/null || jlog warn "could not prepare the kiosk profile folder $STATE_DIR/kiosk-profile"
+  [ "$USER_NAME" = root ] || printf '%s\n' "$USER_NAME" > "$STATE_DIR/kiosk-user" 2>/dev/null
   before=$(cksum < "$kiosk_unit" 2>/dev/null || true)
   write_unit "$kiosk_unit" <<UNIT_EOF
 [Unit]

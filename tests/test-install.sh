@@ -35,14 +35,14 @@ REPO=mcesolutionsinc/famhomebase-pi
 
 publish() { # version [badsum]
   v=$1
-  pay="$WORK/pay-$v"; rm -rf "$pay"; mkdir -p "$pay/scripts" "$pay/doc"
+  pay="$WORK/pay-$v"; rm -rf "$pay"; mkdir -p "$pay/lib" "$pay/doc"
   echo "$v" > "$pay/VERSION"
   cp "$HERE/../famhomebase.env.example" "$pay/famhomebase.env.example"
   echo "install guide $v" > "$pay/doc/INSTALL.md"
-  echo "run $v" > "$pay/scripts/run.sh"
-  printf '#!/bin/sh\necho "host-setup %s $*" >> "%s"\n' "$v" "$WORK/host.log" > "$pay/scripts/host-setup.sh"
+  echo "run $v" > "$pay/lib/run.sh"
+  printf '#!/bin/sh\necho "host-setup %s $*" >> "%s"\n' "$v" "$WORK/host.log" > "$pay/lib/host-setup.sh"
   d="$FIXTURES/$REPO/releases/download/v$v"; mkdir -p "$d"
-  tar -czf "$d/famhomebase-pi-$v.tar.gz" -C "$pay" scripts doc famhomebase.env.example VERSION
+  tar -czf "$d/famhomebase-pi-$v.tar.gz" -C "$pay" lib doc famhomebase.env.example VERSION
   sum=$(sha256sum "$d/famhomebase-pi-$v.tar.gz" | cut -d' ' -f1)
   [ "${2:-}" = badsum ] && sum=0000000000000000000000000000000000000000000000000000000000000000
   echo "$sum  famhomebase-pi-$v.tar.gz" > "$d/famhomebase-pi-$v.tar.gz.sha256"

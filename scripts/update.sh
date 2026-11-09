@@ -13,7 +13,9 @@
 #   FAMHOMEBASE_DOC_DIR    /usr/local/share/doc/famhomebase  README, licence, INSTALL, TROUBLESHOOTING
 #   FAMHOMEBASE_ETC_DIR    /etc/famhomebase                 famhomebase.env (yours) and famhomebase.env.example (the release's)
 #   FAMHOMEBASE_STATE_DIR  /var/lib/famhomebase             the saved copy for a way back, the failed-version note, the kiosk profile
-# A release's payload has the same shape: scripts/, doc/, famhomebase.env.example and VERSION.
+# A release's payload has the same shape: lib/, doc/, famhomebase.env.example and VERSION. (It is lib/ and not scripts/ on purpose: the
+# update script of a release before 0.3.0 looks for scripts/run.sh, finds none, and leaves that install alone instead of half-applying a
+# layout it does not know.)
 set -u
 
 # This script is replaced by the very update it applies, and a shell reads its script as it runs: run from a copy.
@@ -98,19 +100,19 @@ wait_healthy() { # $1 = the version that should be running
   return 1
 }
 
-# A payload (a release, or the saved copy of what was installed) is a folder shaped like the release: scripts/, doc/,
+# A payload (a release, or the saved copy of what was installed) is a folder shaped like the release: lib/, doc/,
 # famhomebase.env.example and VERSION. apply puts one in place; snapshot makes one from what is installed now. Your settings file
 # is not part of it. The files are root's (this runs as root and nothing here is in anyone's home folder).
 apply() { # $1 = a payload folder
   rm -rf "${LIB_DIR:?}" "${DOC_DIR:?}" && mkdir -p "$LIB_DIR" "$DOC_DIR" "$ETC_DIR" || return 1
-  cp -R "$1/scripts/." "$LIB_DIR/" && cp -f "$1/VERSION" "$LIB_DIR/VERSION" || return 1
+  cp -R "$1/lib/." "$LIB_DIR/" && cp -f "$1/VERSION" "$LIB_DIR/VERSION" || return 1
   [ -d "$1/doc" ] && cp -R "$1/doc/." "$DOC_DIR/"
   [ -f "$1/famhomebase.env.example" ] && cp -f "$1/famhomebase.env.example" "$ETC_DIR/famhomebase.env.example"
   return 0
 }
 snapshot() { # $1 = an empty folder to fill
-  mkdir -p "$1/scripts" "$1/doc"
-  cp -R "$LIB_DIR/." "$1/scripts/" && mv "$1/scripts/VERSION" "$1/VERSION" || return 1
+  mkdir -p "$1/lib" "$1/doc"
+  cp -R "$LIB_DIR/." "$1/lib/" && mv "$1/lib/VERSION" "$1/VERSION" || return 1
   [ -d "$DOC_DIR" ] && cp -R "$DOC_DIR/." "$1/doc/"
   [ -f "$ETC_DIR/famhomebase.env.example" ] && cp -f "$ETC_DIR/famhomebase.env.example" "$1/famhomebase.env.example"
   return 0
@@ -138,7 +140,7 @@ expected=$(cut -d' ' -f1 < "$tmp/$pname.tar.gz.sha256")
 actual=$(sha256sum "$tmp/$pname.tar.gz" | cut -d' ' -f1)
 [ -n "$expected" ] && [ "$expected" = "$actual" ] || { jlog error "checksum mismatch for $latest: the download is damaged or not what was published; nothing was changed"; exit 1; }
 mkdir -p "$tmp/new" && tar -xzf "$tmp/$pname.tar.gz" -C "$tmp/new" || { jlog error "could not unpack release $latest"; exit 1; }
-[ "$(tr -d ' \r\n' < "$tmp/new/VERSION" 2>/dev/null)" = "$latest" ] && [ -f "$tmp/new/scripts/run.sh" ] && [ -f "$tmp/new/scripts/host-setup.sh" ] \
+[ "$(tr -d ' \r\n' < "$tmp/new/VERSION" 2>/dev/null)" = "$latest" ] && [ -f "$tmp/new/lib/run.sh" ] && [ -f "$tmp/new/lib/host-setup.sh" ] \
   || { jlog error "the payload is not a valid $latest release; nothing was changed"; exit 1; }
 
 # --- the image first: if it cannot be pulled, nothing has changed -------------------------------------------------------------------------
