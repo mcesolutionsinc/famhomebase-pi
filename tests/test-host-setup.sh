@@ -112,6 +112,7 @@ check "a splash unit that changed is restarted, so the running watch follows it"
 fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
 check "and one that did not change is only started (it already runs)" "! grep -q 'restart famhomebase-splash.path' \$CTL_LOG"
 fresh; setup --kiosk
+check "cloud-init's console output stays in the journal, so no text shows on the screen after the splash" "for s in cloud-init-local cloud-init-network cloud-config cloud-final; do grep -q '^StandardOutput=journal\$' $UNIT/\$s.service.d/famhomebase-quiet.conf || exit 1; done"
 check "the splash waits for the page: a ready unit runs ready.sh, and plymouth is ordered after it, and the kiosk too" "grep -Fxq 'ExecStart=/bin/sh \"$INST/ready.sh\"' $UNIT/famhomebase-ready.service && grep -q '^After=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^Wants=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^After=.*famhomebase-ready.service' $KU && grep -q 'enable .*famhomebase-ready.service' \$CTL_LOG"
 check "the kiosk gets an invisible pointer: the cursor theme is in its environment, and the theme has a picture under the usual names" "grep -Fxq 'Environment=XCURSOR_PATH=$INST/cursors XCURSOR_THEME=famhomebase-blank XCURSOR_SIZE=24' $KU && [ -e $INST/cursors/famhomebase-blank/cursors/default ] && [ -e $INST/cursors/famhomebase-blank/cursors/text ] && [ \"\$(readlink $INST/cursors/famhomebase-blank/cursors/watch)\" = left_ptr ]"
 fresh; setup

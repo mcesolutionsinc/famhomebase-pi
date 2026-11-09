@@ -287,6 +287,15 @@ Wants=famhomebase-ready.service
 ExecStart=
 ExecStart=-/usr/bin/plymouth quit --retain-splash
 UNIT_EOF
+    # cloud-init prints a line ("Completed socket interaction for boot stage final") on the screen right after the splash leaves, which
+    # showed on a black screen for seconds on the first real Pi. Its output stays in the journal.
+    for svc in cloud-init-local cloud-init-network cloud-config cloud-final; do
+      write_unit "$SYSTEMD_DIR/$svc.service.d/famhomebase-quiet.conf" <<UNIT_EOF
+[Service]
+StandardOutput=journal
+StandardError=journal
+UNIT_EOF
+    done
   fi
 fi
 
