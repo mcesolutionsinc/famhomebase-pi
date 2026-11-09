@@ -240,6 +240,9 @@ UNIT_EOF
   # the pointer's invisible cursor theme: one transparent picture under every name a program may ask for
   cursors="$LIB/cursors/famhomebase-blank/cursors"
   if [ -f "$cursors/left_ptr" ]; then
+    # cage (the screen service) draws a pointer of its own from the theme called "default", whatever XCURSOR_THEME says, so that name is the
+    # blank theme too (without this an arrow showed in the middle of the screen from the splash until the browser opened)
+    ln -sfn famhomebase-blank "$LIB/cursors/default" 2>/dev/null
     for name in default arrow pointer text xterm hand hand1 hand2 grab grabbing crosshair watch wait progress move help not-allowed; do ln -sf left_ptr "$cursors/$name" 2>/dev/null; done
   fi
 
