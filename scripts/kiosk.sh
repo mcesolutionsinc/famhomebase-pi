@@ -70,6 +70,10 @@ mkdir -p "$PROFILE" || { echo "kiosk: cannot make the profile folder $PROFILE" >
 # After a power cut Chromium leaves its lock files behind; if the process id in one has since been given to something else it
 # refuses to start on a screen nobody can click. This script is the only thing that opens this profile, so the locks are stale.
 rm -f "$PROFILE/SingletonLock" "$PROFILE/SingletonSocket" "$PROFILE/SingletonCookie"
+# Chromium downloads a DRM component (Widevine) into its profile the first time it runs. On a Pi the next start then dies at once
+# ("Zygote process exited prematurely") and the screen stays black until the profile is cleaned. A wall display plays no protected media:
+# no component downloads (--disable-component-update) and any Widevine folder already in the profile is dropped (found on the first real Pi).
+rm -rf "$PROFILE/WidevineCdm"
 # --user-data-dir: a saved profile of its own, apart from anyone's everyday Chromium. --hide-crash-restore-bubble: after a power cut
 # Chromium would otherwise ask "Restore pages?" on a screen nobody can click.
-exec "$BROWSER" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --password-store=basic --user-data-dir="$PROFILE" --hide-crash-restore-bubble "$URL/?kiosk=1"
+exec "$BROWSER" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run --disable-component-update --password-store=basic --user-data-dir="$PROFILE" --hide-crash-restore-bubble "$URL/?kiosk=1"

@@ -46,6 +46,9 @@ printf 'FAMHOMEBASE_PROFILE=%s/elsewhere\n' "$WORK" > "$T/.env"; run
 check "the profile folder comes from .env" 'grep -q -- "--user-data-dir=$WORK/elsewhere " "$LOG" && [ -d "$WORK/elsewhere" ]'
 mkdir -p "$WORK/home/.local/share/famhomebase-kiosk"; touch "$WORK/home/.local/share/famhomebase-kiosk/SingletonLock" "$WORK/home/.local/share/famhomebase-kiosk/SingletonCookie" "$WORK/home/.local/share/famhomebase-kiosk/Keep"; rm -f "$T/.env"; run
 check "stale Chromium lock files from a power cut are cleared, other profile files are kept" '[ ! -e "$WORK/home/.local/share/famhomebase-kiosk/SingletonLock" ] && [ ! -e "$WORK/home/.local/share/famhomebase-kiosk/SingletonCookie" ] && [ -e "$WORK/home/.local/share/famhomebase-kiosk/Keep" ]'
+mkdir -p "$WORK/home/.local/share/famhomebase-kiosk/WidevineCdm/4.10.3112.0"; touch "$WORK/home/.local/share/famhomebase-kiosk/WidevineCdm/4.10.3112.0/manifest.json" "$WORK/home/.local/share/famhomebase-kiosk/Keep"; run
+check "a Widevine component left in the profile (it makes the next start crash on a Pi) is dropped, and the rest of the profile is kept" '[ ! -e "$WORK/home/.local/share/famhomebase-kiosk/WidevineCdm" ] && [ -e "$WORK/home/.local/share/famhomebase-kiosk/Keep" ]'
+check "component downloads are switched off, so it does not come back" 'grep -q -- "--disable-component-update" "$LOG"'
 env -u HOME PATH="$BIN:$WORK/tools" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" /bin/sh "$T/scripts/kiosk.sh" > "$WORK/out" 2>&1; rc=$?
 check "no HOME and no profile setting: says so rather than keeping the profile somewhere that is wiped" '[ $rc -ne 0 ] && grep -q "HOME is not set" "$WORK/out"'
 printf 'FAMHOMEBASE_PROFILE=relative/x\n' > "$T/.env"; run; rc=$?
