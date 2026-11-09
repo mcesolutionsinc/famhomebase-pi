@@ -183,6 +183,7 @@ if [ "$kiosk" -eq 1 ]; then
     DEBIAN_FRONTEND=noninteractive "$APT_GET" install -y -q "$2" >/dev/null 2>&1 || { jlog warn "could not install $2: install it by hand (sudo apt install $2), then restart famhomebase-kiosk"; return 1; }
   }
   need_pkg cage cage
+  need_pkg swayimg swayimg # shows the logo picture while the browser starts (kiosk.sh); a kiosk without it just has a black screen a little longer
   command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1 || need_pkg chromium chromium
 
   # its own user: no password, no shell, no login. It may use the screen and the keyboard and mouse. A user that exists is checked for
@@ -240,6 +241,24 @@ UNIT_EOF
   cursors="$LIB/cursors/famhomebase-blank/cursors"
   if [ -f "$cursors/left_ptr" ]; then
     for name in default arrow pointer text xterm hand hand1 hand2 grab grabbing crosshair watch wait progress move help not-allowed; do ln -sf left_ptr "$cursors/$name" 2>/dev/null; done
+  fi
+
+  # reads the browser's files into the file cache during the boot, at the lowest priority (warm.sh): the browser then starts about 6 s sooner
+  if [ -f "$LIB/warm.sh" ]; then
+    write_unit "$SYSTEMD_DIR/famhomebase-warm.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase: read the browser's files into memory so the display starts sooner
+
+[Service]
+Type=simple
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+ExecStart=/bin/sh "$LIB/warm.sh"
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
   fi
 
   # the browser's own window is drawn white or grey for a moment before the page paints: a browser policy gives that window the page's
@@ -314,6 +333,7 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
   if [ "$kiosk" -eq 1 ]; then
     "$SYSTEMCTL" enable famhomebase-kiosk.service >/dev/null 2>&1
     [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ] && "$SYSTEMCTL" enable famhomebase-splash.path famhomebase-ready.service >/dev/null 2>&1
+    [ -f "$SYSTEMD_DIR/famhomebase-warm.service" ] && "$SYSTEMCTL" enable famhomebase-warm.service >/dev/null 2>&1
     # no desktop: boot to the text target, so no login manager starts and takes the screen
     [ "$("$SYSTEMCTL" get-default 2>/dev/null)" = graphical.target ] && "$SYSTEMCTL" set-default multi-user.target >/dev/null 2>&1
   fi

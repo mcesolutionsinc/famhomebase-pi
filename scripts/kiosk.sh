@@ -26,6 +26,22 @@ case "$PROFILE" in
 esac
 if [ "$PORT" = 80 ]; then URL=http://localhost; else URL="http://localhost:$PORT"; fi
 
+# The bridge: the boot splash has ended and the browser needs several seconds to start, which would be a black screen. Show the logo picture
+# (assets/bridge/frame-R.png: a whole dark screen with the logo as the splash drew it, already turned for how the screen is mounted) in a
+# window of its own at once. The browser's window opens on top of it later and cage shows the newest window, so nothing has to close it.
+# Without the picture or the viewer (swayimg) the screen is simply black a little longer.
+HERE=$(dirname "$0")
+STATE="${FAMHOMEBASE_STATE_DIR:-/var/lib/famhomebase}"
+ROT=$(cat "$STATE/state/rotation" 2>/dev/null)
+case "$ROT" in 0|90|180|270) ;; *) ROT=0 ;; esac
+FRAME="$HERE/bridge/frame-$ROT.png"
+VIEWER=${FAMHOMEBASE_SWAYIMG:-swayimg}
+if [ -f "$FRAME" ] && command -v "$VIEWER" >/dev/null 2>&1; then
+  "$VIEWER" --fullscreen --scale=fit -c viewer.window='#0A1327' -c info.show=no "$FRAME" >/dev/null 2>&1 &
+else
+  echo '{"level":"info","component":"kiosk","msg":"no bridge picture shown (no picture or no swayimg)"}' >&2
+fi
+
 # The browser can start before Docker has the dashboard up; wait for it.
 until curl -sf "$URL/" >/dev/null; do sleep 2; done
 

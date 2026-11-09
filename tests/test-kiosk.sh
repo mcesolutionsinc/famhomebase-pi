@@ -13,7 +13,7 @@ T="$WORK/inst"; BIN="$WORK/bin"; RT="$WORK/run"
 mkdir -p "$T" "$BIN" "$RT" "$WORK/tools" "$WORK/etc"
 ENVF="$WORK/etc/famhomebase.env"
 # Only the system tools the script really needs, so a chromium or wlr-randr that happens to be installed on this machine can't leak in.
-for tool in sed tail awk dirname mkdir rm; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
+for tool in sed tail awk dirname mkdir rm cat; do ln -s "$(command -v $tool)" "$WORK/tools/$tool"; done
 cp "$HERE/../scripts/kiosk.sh" "$T/kiosk.sh"
 LOG="$WORK/log"
 
@@ -23,6 +23,10 @@ stub id 'echo 1000'
 stub curl 'echo "curl $*" >> "$LOG"; exit 0'
 stub chromium 'echo "chromium $*" >> "$LOG"'
 stub wlr-randr 'echo "wlr-randr $*" >> "$LOG"'
+stub swayimg 'echo "swayimg $*" >> "$LOG"'
+mkdir -p "$T/bridge"; for r in 0 90 180 270; do : > "$T/bridge/frame-$r.png"; done
+waitfor() { i=0; while [ $i -lt 30 ]; do eval "$1" && return 0; i=$((i+1)); sleep 0.1; done; return 1; } # the viewer is started in the background
+logged() { waitfor "grep -q -e \"$1\" \"$LOG\""; }
 
 run() { # extra env as args; returns the script's exit status
   : > "$LOG"
@@ -57,6 +61,19 @@ check "a profile folder that cannot be made: says so, does not open the browser"
 
 printf 'FAMHOMEBASE_ROTATE=90\n' > "$ENVF"; run
 check "rotation is not the kiosk's job (the app turns itself): the setting is ignored, with a message that says where it is set, and the screen is not touched" '! grep -q "^wlr-randr" "$LOG" && grep -q "^chromium" "$LOG" && grep -q "FAMHOMEBASE_ROTATE is ignored since 0.4.0" "$WORK/out"'
+
+# the bridge: the logo picture shown while the browser starts
+rm -f "$ENVF"; run
+check "the bridge: the logo picture is shown full screen at once (rotation 0 when the host has none), and the browser still starts" 'logged "swayimg --fullscreen --scale=fit" && logged "bridge/frame-0.png" && grep -q "^chromium " "$LOG"'
+mkdir -p "$WORK/state/state"; echo 90 > "$WORK/state/state/rotation"; run
+check "the bridge picture is the one for the rotation the display told the host" 'logged "bridge/frame-90.png"'
+echo 45 > "$WORK/state/state/rotation"; run
+check "a junk rotation file falls back to the unturned picture" 'logged "bridge/frame-0.png"'
+rm -f "$WORK/state/state/rotation"; run
+check "the picture has the page's dark background colour and no info overlay" 'logged "viewer.window=#0A1327" && logged "info.show=no"'
+mv "$BIN/swayimg" "$BIN/swayimg.off"; run; st=$?
+check "no viewer installed: the browser starts all the same, with a note" '[ $st = 0 ] && grep -q "^chromium " "$LOG" && grep -q "no bridge picture" "$WORK/out"'
+mv "$BIN/swayimg.off" "$BIN/swayimg"
 
 # the browser
 rm -f "$BIN/chromium"; stub chromium-browser 'echo "chromium-browser $*" >> "$LOG"'; run

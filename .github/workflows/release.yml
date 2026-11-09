@@ -30,6 +30,7 @@ jobs:
           sh tests/test-famhomebase.sh
           sh tests/test-splash.sh
           sh tests/test-ready.sh
+          sh tests/test-warm.sh
 
       - name: Check the image this release needs exists
         run: |
@@ -51,9 +52,10 @@ jobs:
           name="famhomebase-pi-$version"
           stage=$(mktemp -d)
           mkdir "$stage/lib" "$stage/doc"
-          cp scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/splash.sh scripts/ready.sh scripts/famhomebase "$stage/lib/"
+          cp scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/splash.sh scripts/ready.sh scripts/warm.sh scripts/famhomebase "$stage/lib/"
           cp -R assets/splash "$stage/lib/splash"
           cp -R assets/cursors "$stage/lib/cursors"
+          cp -R assets/bridge "$stage/lib/bridge"
           cp famhomebase.env.example "$stage/famhomebase.env.example"
           cp README.md LICENSE docs/INSTALL.md docs/TROUBLESHOOTING.md "$stage/doc/"
           echo "$version" > "$stage/VERSION"

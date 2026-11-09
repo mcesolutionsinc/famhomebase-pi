@@ -3,6 +3,8 @@
 //   tall-R.png  270; the logo is turned the other way, so it reads upright on the wall). The tall one is for a portrait screen (mark above, name below).
 //               (Plymouth's own image rotation crops to the picture's old shape, so the turning is done here.)
 //   dot.png     one of the three loading dots
+//   ../bridge/frame-R.png  a whole 1920x1080 screen (dark, the logo in the middle at the splash's size, turned for R) that the kiosk shows
+//               from the moment its screen service is up until the browser has painted, so the splash is not followed by black.
 // and prints the shapes (width / height of each logo), which the app's start screen uses so it draws the same logo.
 //
 //   node tools/make-splash-assets.cjs <the @expo-google-fonts/sora package folder> <output folder>
@@ -56,6 +58,28 @@ body{margin:0;background:transparent}
       await page.screenshot({ path: path.join(outDir, `${id}-${rot}.png`), clip: box, omitBackground: true });
       shapes[`${id}-${rot}`] = { width: box.width, height: box.height };
     }
+  }
+  // the bridge frames: a full physical screen (1920x1080) with the logo as the splash draws it (55% of the upright screen width for the wide
+  // logo, 70% for the tall one; the upright screen is turned a quarter for 90 and 270), centred and already turned
+  const bridgeDir = path.join(outDir, '..', 'bridge');
+  fs.mkdirSync(bridgeDir, { recursive: true });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  for (const rot of [0, 90, 180, 270]) {
+    const quarter = rot === 90 || rot === 270;
+    const id = quarter ? 'tall' : 'wide';
+    const natural = shapes[`${id}-0`].width; // the logo's upright width in pixels
+    const k = ((quarter ? 0.7 * 1080 : 0.55 * 1920) / natural);
+    await page.evaluate(([elementId, turn, scale]) => {
+      document.querySelectorAll('.logo').forEach((e) => (e.style.display = 'none'));
+      let f = document.getElementById('bridge');
+      if (!f) { f = document.createElement('div'); f.id = 'bridge'; document.body.appendChild(f); }
+      f.style.cssText = 'position:fixed;left:0;top:0;width:1920px;height:1080px;background:#0A1327;display:flex;align-items:center;justify-content:center;overflow:hidden';
+      const el = document.getElementById(elementId);
+      f.appendChild(el);
+      el.style.display = 'inline-flex';
+      el.style.transform = `rotate(${turn}deg) scale(${scale})`;
+    }, [id, (360 - rot) % 360, k]);
+    await page.screenshot({ path: path.join(bridgeDir, `frame-${rot}.png`), clip: { x: 0, y: 0, width: 1920, height: 1080 } });
   }
   const dot = page.locator('#dot');
   await dot.screenshot({ path: path.join(outDir, 'dot.png'), omitBackground: true });
