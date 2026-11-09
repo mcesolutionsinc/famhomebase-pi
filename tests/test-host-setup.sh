@@ -86,6 +86,15 @@ check "the units of an earlier install named cloud are disabled and removed, so 
 fresh; setup
 check "and with none of the older units there is nothing to remove" "! grep -q 'removed the older unit' \$WORK/out"
 
+# not root: it runs itself again under sudo, and must hand sudo the same options (they used to be lost, so --kiosk did nothing)
+printf '#!/bin/sh\necho "sudo $*" >> "$CTL_LOG"\n' > "$WORK/bin/sudo"; chmod +x "$WORK/bin/sudo"
+printf '#!/bin/sh\ncase "$1" in -un) echo tester ;; *) echo 1000 ;; esac\n' > "$WORK/bin/id"; chmod +x "$WORK/bin/id"
+fresh; env -u FAMHOMEBASE_NO_ROOT sh "$INST/scripts/host-setup.sh" --kiosk --no-start > "$WORK/out" 2>&1
+check "run as a normal user, it runs itself again under sudo with the same options and the user's name" "grep -q \"^sudo sh $INST/scripts/host-setup.sh --kiosk --no-start --user tester\\$\" \$CTL_LOG"
+env -u FAMHOMEBASE_NO_ROOT sh "$INST/scripts/host-setup.sh" > "$WORK/out" 2>&1; env -u FAMHOMEBASE_NO_ROOT sh "$INST/scripts/host-setup.sh" --update >/dev/null 2>&1
+check "with no options it passes none on, and --update is kept" "grep -q '^sudo sh $INST/scripts/host-setup.sh --user tester\$' \$CTL_LOG && grep -q '^sudo sh $INST/scripts/host-setup.sh --update --user tester\$' \$CTL_LOG"
+rm -f "$WORK/bin/sudo" "$WORK/bin/id"
+
 fresh; setup --kiosk --no-start
 check "--no-start enables but starts nothing" "! grep -q 'start famhomebase' \$CTL_LOG && grep -q 'enable famhomebase.service' \$CTL_LOG && ! grep -q 'enable --now' \$CTL_LOG"
 

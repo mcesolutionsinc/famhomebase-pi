@@ -24,6 +24,7 @@ NET_DIR=${FAMHOMEBASE_NET_DIR:-/sys/class/net}
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"host-setup","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
 
+ARGS="$*" # as given, for running again under sudo (the loop below uses them up)
 KIOSK=0; START=1; UPDATE=0; USER_NAME=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,7 +40,8 @@ done
 if [ "$(id -u)" -ne 0 ] && [ -z "${FAMHOMEBASE_NO_ROOT:-}" ]; then
   # keep the caller's name for the kiosk: after sudo, "who runs this" is root
   [ -n "$USER_NAME" ] || USER_NAME=$(id -un)
-  exec sudo sh "$0" "$@" --user "$USER_NAME"
+  # shellcheck disable=SC2086 # a short list of flags and one name
+  exec sudo sh "$0" $ARGS --user "$USER_NAME"
 fi
 
 [ -n "$USER_NAME" ] || USER_NAME=$(stat -c %U "$DIR" 2>/dev/null || echo root)
