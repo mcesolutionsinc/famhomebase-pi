@@ -59,6 +59,10 @@ body{margin:0;background:transparent}
       shapes[`${id}-${rot}`] = { width: box.width, height: box.height };
     }
   }
+  const dot = page.locator('#dot');
+  await dot.screenshot({ path: path.join(outDir, 'dot.png'), omitBackground: true });
+  const d = await dot.boundingBox();
+  shapes.dot = { width: Math.round(d.width), height: Math.round(d.height) };
   // the bridge frames: a full physical screen (1920x1080) with the logo as the splash draws it (55% of the upright screen width for the wide
   // logo, 70% for the tall one; the upright screen is turned a quarter for 90 and 270), centred and already turned
   const bridgeDir = path.join(outDir, '..', 'bridge');
@@ -81,10 +85,6 @@ body{margin:0;background:transparent}
     }, [id, (360 - rot) % 360, k]);
     await page.screenshot({ path: path.join(bridgeDir, `frame-${rot}.png`), clip: { x: 0, y: 0, width: 1920, height: 1080 } });
   }
-  const dot = page.locator('#dot');
-  await dot.screenshot({ path: path.join(outDir, 'dot.png'), omitBackground: true });
-  const d = await dot.boundingBox();
-  shapes.dot = { width: Math.round(d.width), height: Math.round(d.height) };
   await browser.close();
   fs.unlinkSync(tmp);
   console.log(JSON.stringify(shapes));

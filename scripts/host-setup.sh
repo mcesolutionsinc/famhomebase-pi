@@ -32,7 +32,7 @@ CHOWN=${CHOWN:-chown}
 SYSTEMD_DIR=${FAMHOMEBASE_SYSTEMD_DIR:-/etc/systemd/system}
 NM_DIR=${FAMHOMEBASE_NM_CONF_DIR:-/etc/NetworkManager/conf.d} # (the tests point these at a scratch folder)
 NET_DIR=${FAMHOMEBASE_NET_DIR:-/sys/class/net}
-POLICY_DIR=${FAMHOMEBASE_CHROMIUM_POLICY_DIR:-/etc/chromium/policies/managed}
+POLICY_DIRS=${FAMHOMEBASE_CHROMIUM_POLICY_DIRS:-/etc/chromium/policies/managed /etc/chromium-browser/policies/managed} # (older Raspberry Pi OS: chromium-browser)
 KIOSK_USER=famhomebase-kiosk
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"host-setup","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
@@ -266,8 +266,10 @@ UNIT_EOF
 
   # the browser's own window is drawn white or grey for a moment before the page paints: a browser policy gives that window the page's
   # dark colour. Debian's Chromium reads every file in this folder, and the policy changes nothing else about it.
-  mkdir -p "$POLICY_DIR" 2>/dev/null
-  printf '{ "BrowserThemeColor": "#0A1327" }\n' > "$POLICY_DIR/famhomebase.json" 2>/dev/null || jlog warn "could not write the browser's colour policy"
+  for dir in $POLICY_DIRS; do
+    mkdir -p "$dir" 2>/dev/null
+    printf '{ "BrowserThemeColor": "#0A1327" }\n' > "$dir/famhomebase.json" 2>/dev/null || jlog warn "could not write the browser's colour policy to $dir"
+  done
 
   # the boot splash (logo and moving dots, turned for how the screen is mounted): the packages, the quiet boot settings and the theme, and
   # a unit that makes the theme again when the page tells the host a new rotation
