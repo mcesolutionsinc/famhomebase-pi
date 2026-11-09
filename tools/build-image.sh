@@ -114,6 +114,10 @@ if [ -n "$TEST_KEY" ]; then
 fi
 [ -z "$HOSTNAME_WANT" ] || { echo "$HOSTNAME_WANT" > "$ROOT/etc/hostname"; sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME_WANT/" "$ROOT/etc/hosts"; }
 
+# the base system's first-boot question ("rename the user?", userconfig.service, on its own terminal) has no place on a display, and it holds the
+# boot at that point until someone answers (cloud-init's last stage waits for the boot to finish): switched off
+chroot "$ROOT" /bin/sh -c "systemctl mask userconfig.service" || die "could not switch off the first-boot user question"
+
 # the display's own image, saved inside (loaded once at first boot by famhomebase-image-load.service)
 jlog info "saving the display image $IMAGE_NAME:$VERSION inside the image"
 docker pull "$IMAGE_NAME:$VERSION" >/dev/null || die "could not pull $IMAGE_NAME:$VERSION (is the release's image published and public?)"
