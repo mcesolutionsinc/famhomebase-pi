@@ -17,6 +17,7 @@ getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$ENV_FILE" 2>/dev/null | tail -n 1; 
 
 PORT=$(getenv FAMHOMEBASE_PORT)
 case "$PORT" in ''|*[!0-9]*) PORT=80 ;; esac
+[ -z "$(getenv FAMHOMEBASE_ROTATE)" ] || echo "kiosk: FAMHOMEBASE_ROTATE is ignored since 0.4.0: set the rotation on the website (Devices, the device's Settings)" >&2
 PROFILE=$(getenv FAMHOMEBASE_PROFILE)
 [ -n "$PROFILE" ] || PROFILE="${FAMHOMEBASE_STATE_DIR:-/var/lib/famhomebase}/kiosk-profile"
 case "$PROFILE" in

@@ -27,6 +27,7 @@ SYSTEMCTL=${SYSTEMCTL:-systemctl}
 RUNUSER=${RUNUSER:-runuser}
 APT_GET=${APT_GET:-apt-get}
 USERADD=${USERADD:-useradd}
+USERMOD=${USERMOD:-usermod}
 CHOWN=${CHOWN:-chown}
 SYSTEMD_DIR=${FAMHOMEBASE_SYSTEMD_DIR:-/etc/systemd/system}
 NM_DIR=${FAMHOMEBASE_NM_CONF_DIR:-/etc/NetworkManager/conf.d} # (the tests point these at a scratch folder)
@@ -143,27 +144,57 @@ UNIT_EOF
 
 # --- the kiosk: cage and the browser, a system service of its own user, on the first virtual terminal ----------------------------------------
 kiosk_unit="$SYSTEMD_DIR/famhomebase-kiosk.service"
+
+# An install before 0.4.0 ran its kiosk in a user's desktop (a user service). Find those: the user named (or who ran sudo), and, for an
+# update, which has neither, every home folder.
+homes=""
+[ -n "$USER_HOME" ] && homes="$USER_HOME"
+for h in ${FAMHOMEBASE_HOMES:-/home/*}; do [ "$h" = "$USER_HOME" ] || homes="$homes $h"; done
+old_units=""
+for h in $homes; do [ -f "$h/.config/systemd/user/famhomebase-kiosk.service" ] && old_units="$old_units $h/.config/systemd/user/famhomebase-kiosk.service"; done
+
+# a kiosk if asked for, or if this install already is one: its unit is here, or an old desktop kiosk of this display is there to move
 kiosk=0
-# a kiosk if asked for, or if this install already is one: its unit is here, or (an install before 0.4.0, which ran in a desktop) the
-# note an earlier kiosk setup left
-if [ "$KIOSK" -eq 1 ] || { [ -f "$kiosk_unit" ] && grep -Fq "$LIB/kiosk.sh" "$kiosk_unit"; } || [ -f "$STATE_DIR/host-applied" ]; then kiosk=1; fi
+if [ "$KIOSK" -eq 1 ] || { [ -f "$kiosk_unit" ] && grep -Fq "$LIB/kiosk.sh" "$kiosk_unit"; } || { [ -n "$old_units" ] && [ -f "$STATE_DIR/host-applied" ]; }; then kiosk=1; fi
+
+# With the new kiosk in charge the old one would fight it for the screen: stop it first (before anything below changes who owns the
+# browser's profile), and remove it. If its user's systemd cannot be reached the process is ended directly.
+if [ "$kiosk" -eq 1 ]; then
+  for old in $old_units; do
+    who=$(stat -c %U "$old" 2>/dev/null || echo "$USER_NAME")
+    uid=$(id -u "$who" 2>/dev/null || echo 0)
+    for u in famhomebase-kiosk.service famhomebase-host.path; do
+      "$RUNUSER" -u "$who" -- env "XDG_RUNTIME_DIR=/run/user/$uid" "$SYSTEMCTL" --user disable --now "$u" >/dev/null 2>&1 || true
+    done
+    pkill -u "$who" -f '/famhomebase/(scripts/)?kiosk\.sh' >/dev/null 2>&1 || true
+    rm -f "$old"
+    jlog info "removed the old desktop kiosk service of $who (the kiosk is a system service now)"
+  done
+fi
+
 kiosk_changed=0
 if [ "$kiosk" -eq 1 ]; then
-  # what it needs: cage and a browser (Raspberry Pi OS Lite has neither)
+  # what it needs: cage and a browser (Raspberry Pi OS Lite has neither). The package lists of a freshly flashed card can be empty.
+  apt_updated=0
   need_pkg() { # command, package
     command -v "$1" >/dev/null 2>&1 && return 0
     jlog info "installing $2 (the kiosk needs it)"
-    "$APT_GET" install -y -q "$2" >/dev/null 2>&1 || { jlog warn "could not install $2: install it by hand (sudo apt install $2), then restart famhomebase-kiosk"; return 1; }
+    if [ "$apt_updated" -eq 0 ]; then DEBIAN_FRONTEND=noninteractive "$APT_GET" update -q >/dev/null 2>&1 || true; apt_updated=1; fi
+    DEBIAN_FRONTEND=noninteractive "$APT_GET" install -y -q "$2" >/dev/null 2>&1 || { jlog warn "could not install $2: install it by hand (sudo apt install $2), then restart famhomebase-kiosk"; return 1; }
   }
   need_pkg cage cage
   command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1 || need_pkg chromium chromium
 
-  # its own user: no password, no shell, no login. It may use the screen and the keyboard and mouse.
+  # its own user: no password, no shell, no login. It may use the screen and the keyboard and mouse. A user that exists is checked for
+  # the groups too (one made by a run that failed half way, or before a group existed).
+  groups=""
+  for g in video render input; do getent group "$g" >/dev/null 2>&1 && groups="$groups $g"; done
   if ! id "$KIOSK_USER" >/dev/null 2>&1; then
-    groups=""
-    for g in video render input; do getent group "$g" >/dev/null 2>&1 && groups="$groups,$g"; done
-    "$USERADD" --system --home-dir "$STATE_DIR/kiosk-home" --create-home --shell /usr/sbin/nologin ${groups:+--groups "${groups#,}"} "$KIOSK_USER" >/dev/null 2>&1 \
+    # shellcheck disable=SC2086 # a short list of group names
+    "$USERADD" --system --home-dir "$STATE_DIR/kiosk-home" --create-home --shell /usr/sbin/nologin ${groups:+--groups "$(echo $groups | tr ' ' ',')"} "$KIOSK_USER" >/dev/null 2>&1 \
       || jlog warn "could not make the user $KIOSK_USER: the kiosk cannot start"
+  else
+    for g in $groups; do id -nG "$KIOSK_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$g" || "$USERMOD" -aG "$g" "$KIOSK_USER" >/dev/null 2>&1 || jlog warn "could not add $KIOSK_USER to the group $g"; done
   fi
   # its browser profile (it holds the pairing) is its own. Done on every run, so a profile left to another user (an earlier desktop
   # kiosk) or made by root is put right.
@@ -202,23 +233,6 @@ UNIT_EOF
   [ "$before" != "$(cksum < "$kiosk_unit" 2>/dev/null || true)" ] && kiosk_changed=1
 fi
 
-# the kiosk of an earlier install ran in a user's desktop (a user service). With this one in charge it would fight it for the screen.
-# The user is the one named (or who ran sudo); an update, which has neither, looks in every home folder.
-if [ "$kiosk" -eq 1 ]; then
-  homes=""
-  [ -n "$USER_HOME" ] && homes="$USER_HOME"
-  for h in ${FAMHOMEBASE_HOMES:-/home/*}; do [ "$h" = "$USER_HOME" ] || homes="$homes $h"; done
-  for h in $homes; do
-    old="$h/.config/systemd/user/famhomebase-kiosk.service"
-    [ -f "$old" ] || continue
-    who=$(stat -c %U "$old" 2>/dev/null || echo "$USER_NAME")
-    "$RUNUSER" -u "$who" -- env "XDG_RUNTIME_DIR=/run/user/$(id -u "$who" 2>/dev/null || echo 0)" "$SYSTEMCTL" --user disable --now famhomebase-kiosk.service >/dev/null 2>&1
-    "$RUNUSER" -u "$who" -- env "XDG_RUNTIME_DIR=/run/user/$(id -u "$who" 2>/dev/null || echo 0)" "$SYSTEMCTL" --user disable --now famhomebase-host.path >/dev/null 2>&1
-    rm -f "$old"
-    jlog info "removed the old desktop kiosk service of $who (the kiosk is a system service now)"
-  done
-fi
-
 # --- enable and start ---------------------------------------------------------------------------------------------------------------
 if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
   "$SYSTEMCTL" enable docker.service >/dev/null 2>&1 || true
@@ -246,13 +260,16 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
       state="$STATE_DIR/host-applied"
       scripts_now=$(cat "$LIB/kiosk.sh" 2>/dev/null | cksum)
       scripts_before=$(cat "$state" 2>/dev/null || true)
+      # a desktop that is up would hold the screen: stop it (it does not come back at the next boot)
+      if "$SYSTEMCTL" is-active --quiet display-manager.service >/dev/null 2>&1; then
+        "$SYSTEMCTL" stop display-manager.service >/dev/null 2>&1
+        kiosk_changed=1 # a kiosk that started while it was up never got the screen
+      fi
       if [ "$UPDATE" -eq 1 ]; then
         if [ "$scripts_now" != "$scripts_before" ] || [ "$kiosk_changed" -eq 1 ]; then
           "$SYSTEMCTL" restart famhomebase-kiosk.service >/dev/null 2>&1 && jlog info "restarted the kiosk"
         fi
       else
-        # a desktop that is up would hold the screen: stop it (it does not come back at the next boot)
-        "$SYSTEMCTL" is-active --quiet display-manager.service >/dev/null 2>&1 && "$SYSTEMCTL" stop display-manager.service >/dev/null 2>&1
         was_active=0; "$SYSTEMCTL" is-active --quiet famhomebase-kiosk.service >/dev/null 2>&1 && was_active=1
         "$SYSTEMCTL" start famhomebase-kiosk.service >/dev/null 2>&1 || jlog warn "could not start the kiosk: see journalctl -u famhomebase-kiosk"
         # already running on an older script or unit: move it onto this install's

@@ -32,13 +32,16 @@ STUB
 printf '#!/bin/sh\necho "apt-get $*" >> "$CTL_LOG"\n[ -z "${FAIL_APT:-}" ]\n' > "$WORK/bin/apt-get"
 printf '#!/bin/sh\necho "useradd $*" >> "$CTL_LOG"\n[ -z "${FAIL_USERADD:-}" ]\n' > "$WORK/bin/useradd"
 printf '#!/bin/sh\necho "chown $*" >> "$CTL_LOG"\n' > "$WORK/bin/chown"
+printf '#!/bin/sh\necho "usermod $*" >> "$CTL_LOG"\n' > "$WORK/bin/usermod"
+printf '#!/bin/sh\necho "pkill $*" >> "$CTL_LOG"\n' > "$WORK/bin/pkill"
+printf '#!/bin/sh\n[ "$1" = group ] && exit 0\nexec /usr/bin/getent "$@"\n' > "$WORK/bin/getent"
 chmod +x "$WORK/bin/"*
 # the tools the kiosk needs, as far as `command -v` can tell: cage and chromium are "installed" unless a test removes them
 mkdir -p "$WORK/tools"; printf '#!/bin/sh\n' > "$WORK/tools/cage"; printf '#!/bin/sh\n' > "$WORK/tools/chromium"; chmod +x "$WORK/tools/"*
 export PATH="$WORK/bin:$WORK/tools:$PATH" CTL_LOG="$WORK/ctl.log"
 export FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
 export FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_SYSTEMD_DIR="$WORK/system" FAMHOMEBASE_USER_HOME="$WORK/home" FAMHOMEBASE_NM_CONF_DIR="$WORK/nm" FAMHOMEBASE_NET_DIR="$WORK/net"
-export FAMHOMEBASE_HOMES="$WORK/home" SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser" APT_GET="$WORK/bin/apt-get" USERADD="$WORK/bin/useradd" CHOWN="$WORK/bin/chown"
+export FAMHOMEBASE_HOMES="$WORK/home" SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser" APT_GET="$WORK/bin/apt-get" USERADD="$WORK/bin/useradd" USERMOD="$WORK/bin/usermod" CHOWN="$WORK/bin/chown"
 
 fresh() {
   rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin"; : > "$CTL_LOG"
@@ -91,6 +94,20 @@ fresh; mkdir -p "$WORK/home/x/.config/systemd/user" "$STATE"; printf '[Service]\
 check "an update of an install before 0.4.0 (a kiosk by the note it left, no --user) finds the old desktop kiosk service in a home folder and removes it" "[ ! -e $WORK/home/x/.config/systemd/user/famhomebase-kiosk.service ] && [ -f $KU ] && grep -q 'user: systemctl --user disable --now famhomebase-kiosk.service' \$CTL_LOG"
 fresh; mkdir -p "$(dirname "$OLD")"; printf '[Service]\nExecStart=x\n' > "$OLD"; setup --user tester
 check "without --kiosk (and no kiosk of ours) it is left alone" "[ -e $OLD ] && ! grep -q '^user:' \$CTL_LOG"
+
+# a user that exists already (made by an earlier run) is checked for its groups
+printf '#!/bin/sh\ncase "$*" in "-nG famhomebase-kiosk") echo famhomebase-kiosk ;; "famhomebase-kiosk") exit 0 ;; "-u famhomebase-kiosk") echo 999 ;; *) exec /usr/bin/id "$@" ;; esac\n' > "$WORK/bin/id"; chmod +x "$WORK/bin/id"
+fresh; setup --kiosk
+check "a service user that already exists is not made again, and is given the groups it lacks" "! grep -q '^useradd' \$CTL_LOG && grep -q '^usermod -aG video famhomebase-kiosk' \$CTL_LOG && grep -q '^usermod -aG input famhomebase-kiosk' \$CTL_LOG"
+rm -f "$WORK/bin/id"
+fresh; PATH="$WORK/bin:/usr/bin:/bin" setup --kiosk
+check "missing packages: the package lists are refreshed first (a freshly flashed card has none), then it installs" "[ \"\$(grep -n '^apt-get update' \$CTL_LOG | head -1 | cut -d: -f1)\" -lt \"\$(grep -n '^apt-get install' \$CTL_LOG | head -1 | cut -d: -f1)\" ]"
+fresh; mkdir -p "$(dirname "$OLD")" "$STATE"; printf '[Service]\nExecStart=x\n' > "$OLD"; setup --kiosk --user tester
+check "the old kiosk is stopped before the profile is handed to the new user, and its process is ended if systemd cannot stop it" "[ \"\$(grep -n 'user: systemctl --user disable --now famhomebase-kiosk' \$CTL_LOG | head -1 | cut -d: -f1)\" -lt \"\$(grep -n '^chown -R' \$CTL_LOG | head -1 | cut -d: -f1)\" ] && grep -q '^pkill -u' \$CTL_LOG"
+fresh; mkdir -p "$STATE"; echo sum > "$STATE/host-applied"; setup --update
+check "a leftover note of an earlier kiosk alone does not turn a plain install into a kiosk (nothing to move, no unit, no packages, no target change)" "[ ! -e $KU ] && ! grep -q 'apt-get\\|useradd\\|set-default' \$CTL_LOG"
+fresh; setup --kiosk; DESKTOP_UP=1 setup --update
+check "an update that moves a desktop kiosk stops the running desktop too, and restarts the kiosk so it gets the screen" "grep -q 'system: stop display-manager' \$CTL_LOG && grep -q 'system: restart famhomebase-kiosk' \$CTL_LOG"
 
 # updates
 fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update

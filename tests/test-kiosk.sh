@@ -56,7 +56,7 @@ printf 'FAMHOMEBASE_PROFILE=/proc/nope/x\n' > "$ENVF"; run; rc=$?
 check "a profile folder that cannot be made: says so, does not open the browser" '[ $rc -ne 0 ] && grep -q "cannot make the profile folder" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
 
 printf 'FAMHOMEBASE_ROTATE=90\n' > "$ENVF"; run
-check "rotation is not the kiosk's job (the app turns itself): the setting is ignored and the screen is not touched" '! grep -q "^wlr-randr" "$LOG" && grep -q "^chromium" "$LOG"'
+check "rotation is not the kiosk's job (the app turns itself): the setting is ignored, with a message that says where it is set, and the screen is not touched" '! grep -q "^wlr-randr" "$LOG" && grep -q "^chromium" "$LOG" && grep -q "FAMHOMEBASE_ROTATE is ignored since 0.4.0" "$WORK/out"'
 
 # the browser
 rm -f "$BIN/chromium"; stub chromium-browser 'echo "chromium-browser $*" >> "$LOG"'; run
