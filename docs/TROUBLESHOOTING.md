@@ -2,88 +2,55 @@
 
 ## Install and start-up
 
-**Docker: `dpkg returned an error code (1)`, no `docker` group, or no `docker.service`** — see the note under
-"Install Docker" in the [install guide](INSTALL.md): Debian's `docker-buildx`/`docker-compose` packages clash with
-Docker's own, and the command-line client alone doesn't include the engine.
+**Docker: `dpkg returned an error code (1)`, no `docker` group, or no `docker.service`**: see the note under "Install Docker" in the
+[install guide](INSTALL.md): Debian's `docker-buildx`/`docker-compose` packages clash with Docker's own, and the command-line client alone
+doesn't include the engine.
 
-**The containers won't start** — `docker compose logs`. If `configstore` exits immediately, check that
-`./secrets/dashboard.key` exists and is exactly 32 bytes (`./scripts/generate-key.sh` makes one).
+**The installer says it could not pull the image** ("denied"): the image package must be public, or Docker must be logged in. If the Docker
+daemon can't be reached, add yourself to the docker group (`sudo usermod -aG docker $USER`), log out and back in, and run the installer again.
 
-**A container says "unhealthy" but the page works** — update to the latest `docker-compose.yml` (`git pull`). Older
-copies checked `localhost`, which can resolve to an address the web server doesn't listen on.
+**The display doesn't start**: `journalctl -u famhomebase --no-pager -n 50` and `docker logs famhomebase-display`. A refused setting (a bad
+`FAMHOMEBASE_API_URL`, port or environment) is one JSON line saying which.
 
-**The port is already in use** (it's port 80 for a new install) — pick another: set `FAMHOMEBASE_PORT=8080` in `~/famhomebase-pi/.env` and run `docker compose up -d` (or re-run the installer with `--port 8080`). Add the port to the address from then on: `http://<pi-address>:8080/`.
-
-## Updates
-
-**Did it update?** `cat ~/famhomebase-pi/VERSION` is the release you're on; `docker compose logs updater --tail 20` says what the
-updater last did. It checks every 6 hours and waits 5 minutes after starting.
-
-**"development checkout ... not updating"** — you installed with `git clone`, which the updater leaves alone. Use the
-installer (install guide, section 3) to switch to a release install.
-
-**A release failed to start and was rolled back** — the log says so, and that version is skipped for a day. Your data was
-never touched. Tell us in an issue with `docker compose logs --tail 100`.
-
-**The updater container keeps restarting** — check `FAMHOMEBASE_DIR` in `.env` is the full path of this folder. The installer sets it.
-
-**Turn updates off** — `AUTO_UPDATE=false` in `.env`, then `docker compose up -d`.
+**The port is already in use** (it is port 80 for a new install): pick another with `--port 8080` (run the installer again) or set
+`FAMHOMEBASE_PORT=8080` in `~/famhomebase/.env` and run `sudo systemctl restart famhomebase`.
 
 ## The Pi's screen
 
-**Nothing appears on the screen after boot** — check the service: `systemctl --user status famhomebase-kiosk` (it ends with the service's recent log lines). It waits up to 5 minutes for the desktop to come up and then tries again. If it isn't installed, run the installer with `--kiosk`. Check desktop autologin is on (`sudo raspi-config nonint do_boot_behaviour B4`).
+**Nothing appears on the screen after boot**: `systemctl --user status famhomebase-kiosk`. It waits up to 5 minutes for the desktop to come up
+and then tries again. If it isn't installed, run the installer with `--kiosk`. Check desktop autologin is on
+(`sudo raspi-config nonint do_boot_behaviour B4`).
 
-**The screen is the wrong way up, or won't rotate** — set `FAMHOMEBASE_ROTATE` in `.env` (90, 180 or 270) and run `systemctl --user restart famhomebase-kiosk`; it needs `sudo apt install wlr-randr`. `systemctl --user status famhomebase-kiosk` says if the rotation failed.
+**The kiosk restarts every few seconds and the log says `Zygote process exited prematurely`**: Chromium downloaded a DRM component (Widevine)
+into its saved profile and crashes on it at the next start. Releases from 0.2.0 stop it and clean it up by themselves. On an older install:
+`rm -rf ~/.local/share/famhomebase-kiosk/WidevineCdm` and `systemctl --user restart famhomebase-kiosk`. The pairing is kept.
 
-**The display shows the full menu** — the address needs `?kiosk=1`.
+**The screen is the wrong way up**: it is a setting of the device on the website (Devices, the device's Settings, Screen rotation). The QR
+screen of a device that has never been paired can't know its rotation, and shows unturned until it is paired.
 
-**The display shows the subscription page** — subscribe from your laptop; the display unlocks by itself within about
-15 seconds. If it doesn't, check the laptop and the Pi are using the same address, and reload the Pi's browser.
+**The display shows the full menu**: the address needs `?kiosk=1` (the kiosk service adds it).
 
-**I want the screen dark at night** — turn on **Night mode** in Settings → Display, set the times, and pick **How dark at
-night**: 30% up to **Black**. The dashboard darkens between those times (in your timezone) and comes back by itself in the
-morning. Only the picture changes, so the TV stays on and connected, keeps its rotation, and doesn't need turning back on;
-its backlight still glows a little, so use the TV's own sleep timer if you want it fully off. On a touch screen, touching it
-brightens it for a minute.
+**A widget says "Weather is not available right now"**: the weather service did not answer (a Pi that has only just booted may not have its
+network yet). It asks again within a minute.
 
-## Setting it up
+## Updates
 
-**The Connect Google button is greyed out** — you opened the page over plain HTTP. Use the SSH tunnel in the install
-guide and browse to `http://localhost:8080/` on your laptop (the tunnel forwards your laptop's 8080 to the Pi).
+**Did it update?** `cat ~/famhomebase/VERSION` is the release you're on; `journalctl -u famhomebase-update --no-pager -n 20` says what the
+updater last did (JSON lines). It checks every 6 hours (`CHECK_INTERVAL_HOURS`) and waits 10 minutes after boot.
 
-**An account says "Needs reconnect"** — Google revoked or expired the connection. Press **Reconnect** on that
-account's row in Accounts (not Connect Google, which adds a second account without your calendar choices) and sign in
-again, leaving every permission box ticked.
+**A release failed to start and was rolled back**: the log says so, and that version is skipped for a day. Your pairing and layout were never
+touched. Tell us in an issue with the log lines.
 
-**Settings say "Can't reach the Pi"** — the app can't reach its background service. `docker compose ps` should show
-both services healthy; try `docker compose restart configstore`.
+**"could not look up the latest release"**: GitHub could not be reached (or answered too often); it tries again at the next check.
 
-**The admin screens ask for the PIN again** — normal after an update or restart of the service; enter it.
+**Turn updates off**: `AUTO_UPDATE=false` in `.env`.
 
-**I forgot the admin PIN** — on the Pi, in this folder, delete the PIN file and restart the service. Your layout,
-settings and connected accounts are not touched; you'll be asked to set a new PIN the next time you open the page:
+## Pairing
 
-```bash
-rm ./data/pin.json
-docker compose restart configstore
-```
+**The code on the screen is refused**: codes last 10 minutes and the screen shows a new one by itself. Type the one on the screen now.
 
-**My dashboard went back to the default layout, or an account vanished** — the Pi keeps the last 20 versions of your
-settings in `./data/history/` (oldest name first, newest last) and keeps an account you remove for 7 days in
-`./data/accounts-removed/`. To go back to an earlier layout, stop the service, put that version in place and start it:
-
-```bash
-docker compose stop configstore
-ls ./data/history                                  # pick the newest one from before it went wrong
-cp ./data/history/config-XXXXXXXXXXXXXXX-XXXX.json ./data/config.json
-docker compose start configstore
-```
-
-To bring back a removed account, copy its file back into `./data/accounts/` with the `.<number>` ending taken off
-(`cp ./data/accounts-removed/<name>.<number> ./data/accounts/<name>`), then restart. Reload the page in your browser
-afterwards.
+**The pairing page says "You have no displays yet"**: make a display on the website first (Displays, New display); the code is kept.
 
 ## Still stuck?
 
-[Open an issue](../../../issues/new/choose) with the output of `docker compose ps` and
-`docker compose logs --tail 100`. Don't paste the contents of `./secrets` or `./data`.
+[Open an issue](../../../issues/new/choose) with `journalctl -u famhomebase --no-pager -n 100` and `docker ps`.

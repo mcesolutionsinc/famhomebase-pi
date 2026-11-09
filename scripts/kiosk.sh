@@ -7,7 +7,7 @@
 #   FAMHOMEBASE_PORT     the port the dashboard is on (default 80)
 #   FAMHOMEBASE_ROTATE   rotate the screen: 90, 180 or 270 (or normal). Unset = leave the screen alone.
 #   FAMHOMEBASE_OUTPUT   which display to rotate, e.g. HDMI-A-1. Unset = the first one `wlr-randr` lists.
-#   FAMHOMEBASE_PROFILE  the folder Chromium keeps its saved data in (default ~/.local/share/famhomebase-kiosk). The cloud display keeps
+#   FAMHOMEBASE_PROFILE  the folder Chromium keeps its saved data in (default ~/.local/share/famhomebase-kiosk). The display keeps
 #                        its pairing credential and its last layout there, so a restart or a power cut leaves it paired.
 set -u
 

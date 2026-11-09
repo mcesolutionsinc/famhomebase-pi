@@ -1,10 +1,10 @@
 #!/bin/sh
-# Updates the FamHomeBase cloud display. Run by the famhomebase-cloud-update systemd timer (as root), every few hours; also fine by hand:
-#   sudo sh scripts/cloud-update.sh
+# Updates the FamHomeBase display. Run by the famhomebase-update systemd timer (as root), every few hours; also fine by hand:
+#   sudo sh scripts/update.sh
 #
 # A release is the container image AND a payload of host files (scripts, the units' text, docs) with the same version number. This
-# script looks for a newer cloud-vX.Y.Z release of famhomebase-pi, downloads the payload and checks its sha256, pulls the image, saves
-# the current files, swaps the new ones in, has cloud-host-setup.sh apply them to this machine, waits for the display to be healthy,
+# script looks for a newer vX.Y.Z release of famhomebase-pi, downloads the payload and checks its sha256, pulls the image, saves
+# the current files, swaps the new ones in, has host-setup.sh apply them to this machine, waits for the display to be healthy,
 # and puts everything back if it isn't. Your .env is never touched. AUTO_UPDATE=false in .env only logs that a release is available.
 set -u
 
@@ -30,9 +30,9 @@ RETRY_AFTER_FAILURE="${RETRY_AFTER_FAILURE_SECONDS:-86400}"
 NAME=famhomebase-display
 
 # This script deletes and replaces folders under $DIR; never let that be empty or the filesystem root.
-case "$DIR" in ""|"/") printf '{"level":"error","component":"cloud-update","msg":"FAMHOMEBASE_DIR must be the install folder"}\n' >&2; exit 1 ;; esac
+case "$DIR" in ""|"/") printf '{"level":"error","component":"update","msg":"FAMHOMEBASE_DIR must be the install folder"}\n' >&2; exit 1 ;; esac
 
-jlog() { printf '{"ts":"%s","level":"%s","component":"cloud-update","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
+jlog() { printf '{"ts":"%s","level":"%s","component":"update","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
 # a value as written in .env: a Windows line ending and one pair of quotes around it are not part of it
 getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 is_semver() { echo "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; }
@@ -49,12 +49,11 @@ ver_gt() {
   [ "$a3" -gt "$b3" ]
 }
 
-# The highest cloud-vX.Y.Z among the repo's releases, as x.y.z (the old line's v* releases and anything else are ignored: the repo's
-# "latest" release belongs to that line, so it cannot be asked for).
+# The highest vX.Y.Z among the repo's releases, as x.y.z (a release candidate, `nightly` and anything else that is not a plain version is ignored).
 latest_version() {
   body=$($CURL -fsSL "$API/repos/$REPO/releases?per_page=50" 2>/dev/null) || return 1
   best=""
-  for v in $(echo "$body" | sed -n 's/.*"tag_name": *"cloud-v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p'); do
+  for v in $(echo "$body" | sed -n 's/.*"tag_name": *"v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p'); do
     if [ -z "$best" ] || ver_gt "$v" "$best"; then best=$v; fi
   done
   [ -n "$best" ] && echo "$best"
@@ -90,7 +89,7 @@ wait_healthy() { # $1 = the version that should be running
 SWAP_FILES="VERSION README.md LICENSE .env.example"
 SWAP_DIRS="scripts docs"
 # This runs as root, so what it writes would be root's: hand it back to whoever owns the install folder (the desktop user), so they can still
-# edit it and the installer, run as them, can still replace it. (The old line's updater did the same: fix_owner.)
+# edit it and the installer, run as them, can still replace it.
 fix_owner() {
   owner=$(stat -c '%u:%g' "$DIR" 2>/dev/null) || return 0
   for f in $SWAP_FILES $SWAP_DIRS .rollback .update-failed .host-applied; do
@@ -108,8 +107,8 @@ restore_from() { # $1 = rollback dir
 # --- decide ------------------------------------------------------------------------------------------------------------------------
 current=$(current_version)
 is_semver "$current" || { jlog error "VERSION in $DIR is not a version (got '$current'): nothing to update from"; exit 1; }
-latest=$(latest_version) || { jlog warn "could not look up the latest cloud release (offline?); will try again at the next check"; exit 0; }
-is_semver "$latest" || { jlog warn "could not read the latest cloud release"; exit 0; }
+latest=$(latest_version) || { jlog warn "could not look up the latest release (offline?); will try again at the next check"; exit 0; }
+is_semver "$latest" || { jlog warn "could not read the latest release"; exit 0; }
 if ! ver_gt "$latest" "$current"; then jlog info "up to date at $current"; exit 0; fi
 case "$(getenv AUTO_UPDATE | tr 'A-Z' 'a-z')" in false|0|no|off) auto=0 ;; *) auto=1 ;; esac
 if [ "$auto" -eq 0 ]; then jlog info "release $latest is available (AUTO_UPDATE is off, so not installing)"; exit 0; fi
@@ -117,8 +116,8 @@ if recently_failed "$latest"; then jlog warn "$latest failed to start recently; 
 
 jlog info "updating $current to $latest"
 tmp=$(mktemp -d)
-pname="famhomebase-pi-cloud-$latest"
-base="$DL/$REPO/releases/download/cloud-v$latest"
+pname="famhomebase-pi-$latest"
+base="$DL/$REPO/releases/download/v$latest"
 
 # --- download and check the payload ------------------------------------------------------------------------------------------------------
 $CURL -fsSL -o "$tmp/$pname.tar.gz" "$base/$pname.tar.gz" && $CURL -fsSL -o "$tmp/$pname.tar.gz.sha256" "$base/$pname.tar.gz.sha256" \
@@ -127,11 +126,11 @@ expected=$(cut -d' ' -f1 < "$tmp/$pname.tar.gz.sha256")
 actual=$(sha256sum "$tmp/$pname.tar.gz" | cut -d' ' -f1)
 [ -n "$expected" ] && [ "$expected" = "$actual" ] || { jlog error "checksum mismatch for $latest: the download is damaged or not what was published; nothing was changed"; exit 1; }
 mkdir -p "$tmp/new" && tar -xzf "$tmp/$pname.tar.gz" -C "$tmp/new" || { jlog error "could not unpack release $latest"; exit 1; }
-[ "$(tr -d ' \r\n' < "$tmp/new/VERSION" 2>/dev/null)" = "$latest" ] && [ -f "$tmp/new/scripts/cloud-run.sh" ] && [ -f "$tmp/new/scripts/cloud-host-setup.sh" ] \
+[ "$(tr -d ' \r\n' < "$tmp/new/VERSION" 2>/dev/null)" = "$latest" ] && [ -f "$tmp/new/scripts/run.sh" ] && [ -f "$tmp/new/scripts/host-setup.sh" ] \
   || { jlog error "the payload is not a valid $latest release; nothing was changed"; exit 1; }
 
 # --- the image first: if it cannot be pulled, nothing has changed -------------------------------------------------------------------------
-image=$(getenv FAMHOMEBASE_CLOUD_IMAGE); image=${image:-ghcr.io/mcesolutionsinc/famhomebase-pi-cloud}
+image=$(getenv FAMHOMEBASE_IMAGE); image=${image:-ghcr.io/mcesolutionsinc/famhomebase-pi}
 "$DOCKER" pull "$image:$latest" >/dev/null 2>&1 || { jlog error "could not pull $image:$latest (is the package public, and the release finished?); nothing was changed"; exit 1; }
 
 # --- save, swap, apply ------------------------------------------------------------------------------------------------------------
@@ -146,9 +145,9 @@ fail() {
   fix_owner
   # the old image is normally still here; if it was pruned in the meantime, fetch it again
   "$DOCKER" image inspect "$image:$current" >/dev/null 2>&1 || "$DOCKER" pull "$image:$current" >/dev/null 2>&1
-  sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1
+  sh "$DIR/scripts/host-setup.sh" --update >/dev/null 2>&1
   printf '%s %s\n' "$latest" "$(date +%s)" > "$DIR/.update-failed"
-  if wait_healthy "$current"; then jlog warn "back on $current and healthy"; else jlog error "the display is not healthy after going back to $current: see journalctl -u famhomebase-cloud"; fi
+  if wait_healthy "$current"; then jlog warn "back on $current and healthy"; else jlog error "the display is not healthy after going back to $current: see journalctl -u famhomebase"; fi
   exit 1
 }
 
@@ -157,7 +156,7 @@ for d in $SWAP_DIRS; do
   if [ -d "$tmp/new/$d" ]; then rm -rf "${DIR:?}/$d"; cp -r "$tmp/new/$d" "$DIR/$d"; fi
 done
 fix_owner
-sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1 || fail "applying the new files to this machine failed"
+sh "$DIR/scripts/host-setup.sh" --update >/dev/null 2>&1 || fail "applying the new files to this machine failed"
 fix_owner
 wait_healthy "$latest" || fail "the display did not become healthy on $latest within ${HEALTH_TIMEOUT}s"
 

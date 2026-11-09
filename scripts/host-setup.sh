@@ -1,150 +1,208 @@
 #!/bin/sh
-# The host side of FamHomeBase: everything that lives outside the containers — the kiosk service, the display tools, and the
-# unit that re-runs this after an update. Two stages, so each does what it is able to:
-#   1. The updater (a container) swaps in new files and images. It can't touch the Pi itself.
-#   2. This script, run by systemd on the Pi (as you, not root), applies whatever the new files need on the host.
+# The host side of the FamHomeBase display: everything that lives outside the container. Run as root (it asks sudo to run it
+# again if it isn't) by the installer, and by the update script after it swaps in new files. Safe to run any number of times.
 #
-#   host-setup.sh [--kiosk] [--no-start] [--update]
-#     --kiosk      this Pi shows the dashboard full-screen (also turns on desktop autologin). Without it, the kiosk is set up
-#                  only if it already is one (a kiosk service exists, or the old labwc autostart line does).
-#     --no-start   set up, but don't start or restart anything
-#     --update     the run systemd does after an update: no prompts, and it restarts the kiosk if the scripts changed
+#   host-setup.sh [--kiosk] [--no-start] [--update] [--user NAME]
+#     --kiosk      this Pi shows the display full-screen at boot (also turns on desktop autologin, and takes over the kiosk
+#                  service even if an older FamHomeBase install owns it)
+#     --no-start   set everything up, but don't start or restart anything
+#     --update     the run the update script does after swapping files: restarts the display, and the kiosk if its files changed
+#     --user NAME  whose desktop the kiosk runs in (default: the owner of this folder)
 #
-# Safe to run any number of times. install.sh runs it; so does famhomebase-host.path whenever VERSION changes.
+# It writes three system units (the display container, the update service and its timer) and, for a kiosk, one user unit that runs
+# scripts/kiosk.sh. Without --kiosk it leaves a kiosk service that points at another install alone, so a test install can sit beside
+# a working one.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 DIR=$(cd "$HERE/.." && pwd)
-KIOSK=0; START=1; UPDATE=0
-for arg in "$@"; do
-  case "$arg" in
+SYSTEMCTL=${SYSTEMCTL:-systemctl}
+RUNUSER=${RUNUSER:-runuser}
+SYSTEMD_DIR=${FAMHOMEBASE_SYSTEMD_DIR:-/etc/systemd/system}
+NM_DIR=${FAMHOMEBASE_NM_CONF_DIR:-/etc/NetworkManager/conf.d} # (the tests point these at a scratch folder)
+NET_DIR=${FAMHOMEBASE_NET_DIR:-/sys/class/net}
+
+jlog() { printf '{"ts":"%s","level":"%s","component":"host-setup","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
+
+KIOSK=0; START=1; UPDATE=0; USER_NAME=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --kiosk) KIOSK=1 ;;
     --no-start) START=0 ;;
     --update) UPDATE=1 ;;
-    *) echo "host-setup: unknown option $arg" >&2; exit 2 ;;
+    --user) [ $# -ge 2 ] || { jlog error "--user needs a name"; exit 2; }; USER_NAME=$2; shift ;;
+    *) jlog error "unknown option $1"; exit 2 ;;
   esac
+  shift
 done
-say() { printf '%s\n' "$*"; }
 
-unit_dir="$HOME/.config/systemd/user"
-kiosk_unit="$unit_dir/famhomebase-kiosk.service"
-autostart="$HOME/.config/labwc/autostart"
-legacy=0
-{ [ -f "$autostart" ] && grep -q 'kiosk=1' "$autostart"; } && legacy=1
+if [ "$(id -u)" -ne 0 ] && [ -z "${FAMHOMEBASE_NO_ROOT:-}" ]; then
+  # keep the caller's name for the kiosk: after sudo, "who runs this" is root
+  [ -n "$USER_NAME" ] || USER_NAME=$(id -un)
+  exec sudo sh "$0" "$@" --user "$USER_NAME"
+fi
 
-# Not a kiosk (a headless Pi, or a laptop): nothing to do on the host.
-if [ "$KIOSK" -eq 0 ] && [ "$legacy" -eq 0 ] && [ ! -f "$kiosk_unit" ]; then exit 0; fi
+[ -n "$USER_NAME" ] || USER_NAME=$(stat -c %U "$DIR" 2>/dev/null || echo root)
+USER_HOME=${FAMHOMEBASE_USER_HOME:-$(getent passwd "$USER_NAME" | cut -d: -f6)}
+USER_ID=$(id -u "$USER_NAME" 2>/dev/null || echo 0)
+# a value as written in .env: a Windows line ending and one pair of quotes around it are not part of it
+getenv() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$DIR/.env" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 
-XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-export XDG_RUNTIME_DIR
+changed_units=0
+write_unit() { # file path, then the file's text on stdin; notes whether it changed
+  case "$1" in
+    "$USER_HOME"/*) # a file in the user's home: any folder made on the way belongs to the user, not to root
+      d="$USER_HOME"
+      for part in $(dirname "${1#"$USER_HOME"/}" | tr '/' ' '); do
+        d="$d/$part"
+        [ -d "$d" ] || { mkdir "$d" && chown "$USER_NAME" "$d" 2>/dev/null; }
+      done ;;
+    *) mkdir -p "$(dirname "$1")" ;;
+  esac
+  cat > "$1.new"
+  if cmp -s "$1.new" "$1" 2>/dev/null; then rm -f "$1.new"; else mv "$1.new" "$1"; changed_units=1; fi
+}
 
-if [ "$KIOSK" -eq 1 ]; then
-  say "Setting this Pi to show the dashboard full-screen at boot..."
-  if command -v raspi-config >/dev/null 2>&1; then
-    sudo raspi-config nonint do_boot_behaviour B4 || say "  (could not turn on desktop autologin — do it in raspi-config: System Options > Boot / Auto Login)"
+# --- the kiosk's desktop session: log in to the desktop by itself ---------------------------------------------------------------------
+if [ "$KIOSK" -eq 1 ] && command -v raspi-config >/dev/null 2>&1; then
+  raspi-config nonint do_boot_behaviour B4 >/dev/null 2>&1 || jlog warn "could not turn on desktop autologin: do it in raspi-config (System Options, Boot / Auto Login)"
+fi
+
+# --- Wi-Fi power saving makes the Pi's connection lag and drop. Written once, never overwritten, so a setting of your own is kept. ----
+nm_conf="$NM_DIR/wifi-powersave.conf"
+if [ -d "$NM_DIR" ] && [ -e "$NET_DIR/wlan0" ] && [ ! -e "$nm_conf" ]; then
+  if printf '[connection]\nwifi.powersave = 2\n' > "$nm_conf" 2>/dev/null; then
+    jlog info "turned off Wi-Fi power saving (applies after the next reboot)"
   else
-    say "  (raspi-config not found — make sure this machine logs into its desktop automatically)"
+    jlog warn "could not turn off Wi-Fi power saving"
   fi
 fi
 
-# The display tool the kiosk uses: wlr-randr rotates the screen.
-missing=""
-command -v wlr-randr >/dev/null 2>&1 || missing=" wlr-randr"
-if [ -n "$missing" ]; then
-  say "Installing the screen rotation tool:$missing"
-  # After an update there is nobody to type a password: sudo -n only succeeds when sudo needs none.
-  if [ "$UPDATE" -eq 1 ]; then sudo_cmd="sudo -n"; else sudo_cmd="sudo"; fi
-  # shellcheck disable=SC2086 # a list of package names
-  $sudo_cmd apt-get install -y $missing >/dev/null 2>&1 || say "  (could not install it — run: sudo apt install$missing)"
+# --- the system units --------------------------------------------------------------------------------------------------------------
+hours=$(getenv CHECK_INTERVAL_HOURS)
+case "$hours" in ''|*[!0-9]*) hours=6 ;; esac
+{ [ "$hours" -ge 1 ] && [ "$hours" -le 168 ]; } || hours=6
+
+write_unit "$SYSTEMD_DIR/famhomebase.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase display (container)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/bin/sh "$DIR/scripts/run.sh"
+ExecStopPost=-/bin/sh -c 'docker rm -f famhomebase-display >/dev/null 2>&1'
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+
+write_unit "$SYSTEMD_DIR/famhomebase-update.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase: look for an update and apply it
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh "$DIR/scripts/update.sh"
+UNIT_EOF
+
+write_unit "$SYSTEMD_DIR/famhomebase-update.timer" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase: look for an update every $hours hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=${hours}h
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target
+UNIT_EOF
+
+# --- the kiosk (a user unit, in the desktop user's own systemd) ----------------------------------------------------------------------
+kiosk_unit="$USER_HOME/.config/systemd/user/famhomebase-kiosk.service"
+kiosk=0
+if [ "$KIOSK" -eq 1 ]; then
+  kiosk=1
+elif [ -f "$kiosk_unit" ]; then
+  if grep -Fxq "ExecStart=\"$DIR/scripts/kiosk.sh\"" "$kiosk_unit"; then
+    kiosk=1
+  else
+    jlog info "left the kiosk service alone: it belongs to another FamHomeBase install (use --kiosk to move it here)"
+  fi
 fi
-
-# Wi-Fi power saving, which the Pi's wireless chip has on by default, makes the connection drop and lag — the dashboard then loads slowly
-# or not at all. Turn it off for a Pi on Wi-Fi. Written once and never overwritten, so a setting of your own is kept; it takes effect
-# when the Pi next reconnects or reboots (restarting NetworkManager now would drop the connection in the middle of an update).
-nm_dir=${FAMHOMEBASE_NM_CONF_DIR:-/etc/NetworkManager/conf.d} # (the tests point these two at a scratch folder)
-net_dir=${FAMHOMEBASE_NET_DIR:-/sys/class/net}
-nm_conf="$nm_dir/wifi-powersave.conf"
-if [ -d "$nm_dir" ] && [ -e "$net_dir/wlan0" ] && [ ! -e "$nm_conf" ]; then
-  say "Turning off Wi-Fi power saving (it makes the Pi's connection lag and drop)..."
-  if [ "$UPDATE" -eq 1 ]; then sudo_cmd="sudo -n"; else sudo_cmd="sudo"; fi
-  # shellcheck disable=SC2016 # the quotes are for the inner shell
-  $sudo_cmd sh -c 'printf "[connection]\nwifi.powersave = 2\n" > "$1"' sh "$nm_conf" >/dev/null 2>&1 \
-    && say "  Done; it applies after the next reboot." \
-    || say "  (could not — run: sudo sh -c 'printf \"[connection]\\nwifi.powersave = 2\\n\" > $nm_conf')"
-fi
-
-mkdir -p "$unit_dir"
-write_unit() { # name, then the file's text on stdin; reports whether it changed
-  cat > "$unit_dir/$1.new"
-  if cmp -s "$unit_dir/$1.new" "$unit_dir/$1" 2>/dev/null; then rm -f "$unit_dir/$1.new"; else mv "$unit_dir/$1.new" "$unit_dir/$1"; changed_units=1; fi
-}
-changed_units=0
-
-write_unit famhomebase-kiosk.service <<UNIT_EOF
+kiosk_changed=0
+if [ "$kiosk" -eq 1 ]; then
+  before=$(cksum < "$kiosk_unit" 2>/dev/null || true)
+  write_unit "$kiosk_unit" <<UNIT_EOF
 [Unit]
 Description=FamHomeBase kiosk display
 
 [Service]
-ExecStart=$DIR/scripts/kiosk.sh
+ExecStart="$DIR/scripts/kiosk.sh"
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=default.target
 UNIT_EOF
-
-# Stage two of an update: when the updater changes VERSION, systemd runs this script again.
-write_unit famhomebase-host.service <<UNIT_EOF
-[Unit]
-Description=FamHomeBase: apply an update on this Pi
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh $DIR/scripts/host-setup.sh --update
-UNIT_EOF
-write_unit famhomebase-host.path <<UNIT_EOF
-[Unit]
-Description=FamHomeBase: watch for an update
-
-[Path]
-PathChanged=$DIR/VERSION
-
-[Install]
-WantedBy=default.target
-UNIT_EOF
-
-if [ "$legacy" -eq 1 ]; then
-  cp -f "$autostart" "$autostart.bak"
-  awk '/kiosk=1/ || /^# Wait for the dashboard to be up, then open it full-screen/ { next } { print }' "$autostart.bak" > "$autostart.new" && cat "$autostart.new" > "$autostart"
-  rm -f "$autostart.new"
-  say "Moved the kiosk from $autostart to a systemd service (the old file is saved as autostart.bak; your other lines in it stay)."
-  pkill -x chromium >/dev/null 2>&1 || true # the old kiosk's browser: the service starts its own
+  chown -R "$USER_NAME" "$USER_HOME/.config/systemd" 2>/dev/null || true
+  [ "$before" != "$(cksum < "$kiosk_unit" 2>/dev/null || true)" ] && kiosk_changed=1
 fi
 
-# The kiosk script is read when the service starts, so an update that changes them needs a restart to take effect.
-state="$DIR/.host-applied"
-scripts_now=$(cat "$DIR/scripts/kiosk.sh" 2>/dev/null | cksum)
-scripts_before=$(cat "$state" 2>/dev/null || true)
+# --- enable and start ---------------------------------------------------------------------------------------------------------------
+user_ctl() { "$RUNUSER" -u "$USER_NAME" -- env "XDG_RUNTIME_DIR=/run/user/$USER_ID" "$SYSTEMCTL" --user "$@"; }
 
-if systemctl --user daemon-reload >/dev/null 2>&1; then
-  systemctl --user enable famhomebase-host.path >/dev/null 2>&1
+if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
+  "$SYSTEMCTL" enable docker.service >/dev/null 2>&1 || true
+  "$SYSTEMCTL" enable famhomebase.service famhomebase-update.timer >/dev/null 2>&1
   if [ "$START" -eq 1 ]; then
-    systemctl --user start famhomebase-host.path >/dev/null 2>&1
+    "$SYSTEMCTL" start famhomebase-update.timer >/dev/null 2>&1
     if [ "$UPDATE" -eq 1 ]; then
-      # Restart only if the scripts changed (or the unit did), so an update that doesn't touch the display doesn't blink it.
-      if [ "$scripts_now" != "$scripts_before" ] || [ "$changed_units" -eq 1 ]; then
-        systemctl --user restart famhomebase-kiosk.service >/dev/null 2>&1 && say "Restarted the kiosk to use the updated scripts."
-      fi
+      "$SYSTEMCTL" restart famhomebase.service >/dev/null 2>&1 && jlog info "restarted the display"
+      [ "$changed_units" -eq 1 ] && "$SYSTEMCTL" restart famhomebase-update.timer >/dev/null 2>&1
     else
-      # Already running on the old scripts: restart it onto the new ones. Not running: enabling it starts it.
-      was_active=0; systemctl --user is-active --quiet famhomebase-kiosk.service >/dev/null 2>&1 && was_active=1
-      systemctl --user enable --now famhomebase-kiosk.service >/dev/null 2>&1 && say "  The kiosk service is running; restart it any time with: systemctl --user restart famhomebase-kiosk"
-      if [ "$was_active" -eq 1 ] && [ "$scripts_now" != "$scripts_before" ]; then systemctl --user restart famhomebase-kiosk.service >/dev/null 2>&1; fi
+      "$SYSTEMCTL" start famhomebase.service >/dev/null 2>&1 || jlog warn "could not start the display: see journalctl -u famhomebase"
     fi
-  else
-    systemctl --user enable famhomebase-kiosk.service >/dev/null 2>&1
   fi
 else
-  say "  Could not reach your user's systemd (normal when run from a session with no desktop login yet). It starts at the next login; or run: systemctl --user enable --now famhomebase-kiosk.service famhomebase-host.path"
+  jlog warn "could not reach systemd: the display starts at the next boot, or run: systemctl enable --now famhomebase.service famhomebase-update.timer"
 fi
-printf '%s\n' "$scripts_now" > "$state" 2>/dev/null || true
+
+if [ "$kiosk" -eq 1 ]; then
+  # the kiosk script is read when the service starts, so a changed script needs a restart to take effect
+  state="$DIR/.host-applied"
+  scripts_now=$(cat "$DIR/scripts/kiosk.sh" 2>/dev/null | cksum)
+  scripts_before=$(cat "$state" 2>/dev/null || true)
+  if user_ctl daemon-reload >/dev/null 2>&1; then
+    # an earlier line of FamHomeBase re-ran its own host setup from a user path unit; with this install in charge that would undo it
+    user_ctl disable --now famhomebase-host.path >/dev/null 2>&1 || true
+    if [ "$START" -eq 1 ]; then
+      if [ "$UPDATE" -eq 1 ]; then
+        if [ "$scripts_now" != "$scripts_before" ] || [ "$kiosk_changed" -eq 1 ]; then
+          user_ctl restart famhomebase-kiosk.service >/dev/null 2>&1 && jlog info "restarted the kiosk"
+        fi
+      else
+        was_active=0; user_ctl is-active --quiet famhomebase-kiosk.service >/dev/null 2>&1 && was_active=1
+        user_ctl enable --now famhomebase-kiosk.service >/dev/null 2>&1 || jlog warn "could not start the kiosk: it starts at the next login"
+        # already running on an older script or unit: move it onto this install's. A kiosk that was not running was just started on the new ones.
+        if [ "$was_active" -eq 1 ] && { [ "$kiosk_changed" -eq 1 ] || [ "$scripts_now" != "$scripts_before" ]; }; then
+          user_ctl restart famhomebase-kiosk.service >/dev/null 2>&1
+        fi
+      fi
+    else
+      user_ctl enable famhomebase-kiosk.service >/dev/null 2>&1
+    fi
+  else
+    jlog warn "could not reach $USER_NAME's systemd (normal before the first desktop login): the kiosk starts at the next login"
+  fi
+  printf '%s\n' "$scripts_now" > "$state" 2>/dev/null || true
+  chown "$USER_NAME" "$state" 2>/dev/null || true
+fi
+exit 0

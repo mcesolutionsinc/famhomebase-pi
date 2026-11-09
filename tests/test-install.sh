@@ -1,5 +1,6 @@
 #!/bin/sh
-# Tests for scripts/install.sh with stubbed curl, docker, sudo and raspi-config. Run: sh tests/test-install.sh
+# Tests for scripts/install.sh with stubbed curl, docker, systemctl and sudo, and a fake payload (no network, no Docker).
+# Run: sh tests/test-install.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$HERE/../scripts/install.sh"
@@ -9,142 +10,88 @@ bad()  { n=$((n+1)); fail=$((fail+1)); echo "NOT OK $n - $1"; }
 check() { if eval "$2"; then ok "$1"; else bad "$1  [$2]"; fi; }
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
-REPO=mcesolutionsinc/famhomebase-pi
-FIXTURES="$WORK/fx"; mkdir -p "$WORK/bin" "$FIXTURES"
-
+mkdir -p "$WORK/bin"
 cat > "$WORK/bin/curl" <<'STUB'
 #!/bin/sh
 out=""; url=""
-while [ $# -gt 0 ]; do case "$1" in -o) shift; out="$1";; -*) ;; *) url="$1";; esac; shift; done
-src="$FIXTURES/${url#*://*/}"
+while [ $# -gt 0 ]; do case "$1" in -fsSL|-fsS|-s) ;; -o) shift; out="$1" ;; *) url="$1" ;; esac; shift; done
+src="$FIXTURES/${url#*://*/}"; src=${src%%\?*}
 [ -f "$src" ] || exit 22
-if [ -z "$out" ]; then cat "$src"; else cp "$src" "$out"; fi
+if [ -n "$out" ]; then cp "$src" "$out"; else cat "$src"; fi
 STUB
 cat > "$WORK/bin/docker" <<'STUB'
 #!/bin/sh
 echo "$*" >> "$DOCKER_LOG"
-[ "$1 $2" = "compose version" ] && [ -n "${NO_COMPOSE:-}" ] && exit 1
+[ "$1" = pull ] && [ -n "${FAIL_PULL:-}" ] && exit 1
 exit 0
 STUB
-printf '#!/bin/sh\necho "raspi-config $*" >> "$DOCKER_LOG"\n' > "$WORK/bin/raspi-config"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/systemctl"
 printf '#!/bin/sh\nexec "$@"\n' > "$WORK/bin/sudo"
-printf '#!/bin/sh\necho "systemctl $*" >> "$DOCKER_LOG"\n[ -n "${NO_SYSTEMD:-}" ] && [ "$2" = daemon-reload ] && exit 1\nexit 0\n' > "$WORK/bin/systemctl"
-printf '#!/bin/sh\necho "pkill $*" >> "$DOCKER_LOG"\n' > "$WORK/bin/pkill"
-printf '#!/bin/sh\necho "apt-get $*" >> "$DOCKER_LOG"\n' > "$WORK/bin/apt-get"
 chmod +x "$WORK/bin/"*
+export PATH="$WORK/bin:$PATH" CURL="$WORK/bin/curl" DOCKER_LOG="$WORK/docker.log"
+export GITHUB_API=https://api.example.test GITHUB_DOWNLOAD=https://dl.example.test
+REPO=mcesolutionsinc/famhomebase-pi
 
-pay="$WORK/pay"; mkdir -p "$pay/scripts"
-for v in 0.1.5 0.1.6; do
-  rm -rf "$pay"; mkdir -p "$pay/scripts"
-  echo "services: {}" > "$pay/docker-compose.yml"; echo "$v" > "$pay/VERSION"
-  printf 'FAMHOMEBASE_DIR=/home/pi/famhomebase-pi\nFAMHOMEBASE_PORT=80\nAUTO_UPDATE=true\n' > "$pay/.env.example"
-  printf '#!/bin/sh\nmkdir -p secrets && echo KEY > secrets/dashboard.key\n' > "$pay/scripts/generate-key.sh"
-  cp "$HERE/../scripts/host-setup.sh" "$pay/scripts/host-setup.sh" # the real one: the installer calls it
+publish() { # version [badsum]
+  v=$1
+  pay="$WORK/pay-$v"; rm -rf "$pay"; mkdir -p "$pay/scripts"
+  echo "$v" > "$pay/VERSION"
+  cp "$HERE/../.env.example" "$pay/.env.example"
+  printf '#!/bin/sh\necho "host-setup %s $*" >> "%s"\n' "$v" "$WORK/host.log" > "$pay/scripts/host-setup.sh"
   d="$FIXTURES/$REPO/releases/download/v$v"; mkdir -p "$d"
   tar -czf "$d/famhomebase-pi-$v.tar.gz" -C "$pay" .
-  echo "$(sha256sum "$d/famhomebase-pi-$v.tar.gz" | cut -d' ' -f1)  famhomebase-pi-$v.tar.gz" > "$d/famhomebase-pi-$v.tar.gz.sha256"
-done
-mkdir -p "$FIXTURES/repos/$REPO/releases"; echo '{"tag_name": "v0.1.6"}' > "$FIXTURES/repos/$REPO/releases/latest"
-
-run() { # args to install.sh; env via ENVV
-  env PATH="$WORK/bin:$PATH" HOME="$WORK/home" FIXTURES="$FIXTURES" DOCKER_LOG="$WORK/docker.log" \
-    GITHUB_API=https://api.github.com GITHUB_DOWNLOAD=https://github.com ${ENVV:-} sh "$SCRIPT" "$@" > "$WORK/out.log" 2>&1
+  sum=$(sha256sum "$d/famhomebase-pi-$v.tar.gz" | cut -d' ' -f1)
+  [ "${2:-}" = badsum ] && sum=0000000000000000000000000000000000000000000000000000000000000000
+  echo "$sum  famhomebase-pi-$v.tar.gz" > "$d/famhomebase-pi-$v.tar.gz.sha256"
 }
-reset() { rm -rf "$WORK/home" "$WORK/inst"; mkdir -p "$WORK/home"; : > "$WORK/docker.log"; }
+list() { mkdir -p "$FIXTURES/repos/$REPO"; : > "$FIXTURES/repos/$REPO/releases"; for t in "$@"; do echo "  {\"tag_name\": \"$t\"}," >> "$FIXTURES/repos/$REPO/releases"; done; }
+fresh() { FIXTURES="$WORK/fx"; rm -rf "$FIXTURES" "$WORK/inst" "$WORK/host.log"; mkdir -p "$FIXTURES"; export FIXTURES; : > "$DOCKER_LOG"; : > "$WORK/host.log"; unset FAIL_PULL; publish 0.1.0; list v0.1.0; }
+install() { sh "$SCRIPT" --dir "$WORK/inst" "$@" > "$WORK/out" 2> "$WORK/err"; }
+I="$WORK/inst"
 
-reset; run --dir "$WORK/inst"
-check "fresh install: latest release, files in place" '[ "$(cat "$WORK/inst/VERSION")" = 0.1.6 ] && [ -f "$WORK/inst/docker-compose.yml" ]'
-check "fresh install: .env points at the install folder" 'grep -q "^FAMHOMEBASE_DIR=$WORK/inst\$" "$WORK/inst/.env" && grep -q "^AUTO_UPDATE=true" "$WORK/inst/.env"'
-check "fresh install: encryption key created" '[ -f "$WORK/inst/secrets/dashboard.key" ]'
-check "fresh install: pulled and started" 'grep -q "^compose pull" "$WORK/docker.log" && grep -q "^compose up -d" "$WORK/docker.log"'
-check "fresh install: port 80, so the addresses have no port" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && grep -q "http://localhost/?kiosk=1" "$WORK/out.log" && ! grep -q ":8080" "$WORK/out.log"'
+fresh; install; st=$?
+check "installs the newest release into the folder" "[ $st = 0 ] && [ \"\$(cat $I/VERSION)\" = 0.1.0 ]"
+check "writes .env: prod, the production site, port 80, this folder" "grep -q '^FAMHOMEBASE_ENV=prod\$' $I/.env && grep -q '^FAMHOMEBASE_API_URL=https://famhomebase.mc-esolutions.ca\$' $I/.env && grep -q '^FAMHOMEBASE_PORT=80\$' $I/.env && grep -q '^FAMHOMEBASE_DIR=$I\$' $I/.env"
+check "pulls the image first, under the release's version" "grep -q '^pull ghcr.io/mcesolutionsinc/famhomebase-pi:0.1.0\$' \$DOCKER_LOG"
+check "runs the host setup for this user, without a kiosk" "grep -q \"host-setup 0.1.0 --user \$(id -un)\$\" \$WORK/host.log"
 
-reset; run --dir "$WORK/inst" --version 0.1.5
-check "--version installs that release, not the latest" '[ "$(cat "$WORK/inst/VERSION")" = 0.1.5 ]'
+fresh; install --kiosk --env staging --port 8080; st=$?
+check "--kiosk is passed on to the host setup" "[ $st = 0 ] && grep -q -- '--kiosk' \$WORK/host.log"
+check "--env staging points at the staging site, and --port is kept" "grep -q '^FAMHOMEBASE_ENV=staging\$' $I/.env && grep -q '^FAMHOMEBASE_API_URL=https://staging.famhomebase.mc-esolutions.ca\$' $I/.env && grep -q '^FAMHOMEBASE_PORT=8080\$' $I/.env"
+fresh; install --api-url https://other.example.net; 
+check "--api-url wins" "grep -q '^FAMHOMEBASE_API_URL=https://other.example.net\$' $I/.env"
 
-reset; run --dir "$WORK/inst" --version 0.1.5; echo "MY-KEY" > "$WORK/inst/secrets/dashboard.key"; echo "AUTO_UPDATE=false" > "$WORK/inst/.env"; mkdir -p "$WORK/inst/data"; echo KEEP > "$WORK/inst/data/config.json"; : > "$WORK/docker.log"
-run --dir "$WORK/inst"
-check "re-run upgrades to the latest" '[ "$(cat "$WORK/inst/VERSION")" = 0.1.6 ] && grep -q "Updated 0.1.5 -> 0.1.6" "$WORK/out.log"'
-check "re-run keeps the key, data and .env" '[ "$(cat "$WORK/inst/secrets/dashboard.key")" = MY-KEY ] && [ "$(cat "$WORK/inst/data/config.json")" = KEEP ] && grep -q "AUTO_UPDATE=false" "$WORK/inst/.env"'
-check "re-run adds FAMHOMEBASE_DIR to an old .env that lacked it" 'grep -q "^FAMHOMEBASE_DIR=" "$WORK/inst/.env"'
-check "re-run on an .env with no port setting writes the default (80) — no special case for older installs" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && [ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ] && grep -q "localhost/?kiosk=1" "$WORK/out.log"'
+fresh; install --env staging; echo 'AUTO_UPDATE=false' >> "$I/.env"; install --env prod
+check "a re-run changes only what was passed: the owner's other choices stay, the environment switches" "grep -q '^AUTO_UPDATE=false\$' $I/.env && grep -q '^FAMHOMEBASE_ENV=prod\$' $I/.env && grep -q '^FAMHOMEBASE_API_URL=https://famhomebase.mc-esolutions.ca\$' $I/.env"
+install --port 8080; install
+check "and a later re-run keeps the port" "grep -q '^FAMHOMEBASE_PORT=8080\$' $I/.env"
 
-reset; run --dir "$WORK/inst" --no-start
-check "--no-start sets up but starts nothing" '[ -f "$WORK/inst/VERSION" ] && ! grep -q "^compose up" "$WORK/docker.log"'
+fresh; publish 0.3.0; publish 0.10.0; publish 0.2.0; list v0.3.0 v0.10.0 v0.2.0 nightly cloud-v9.9.9 v0.11.0-rc1; install
+check "takes the highest release (0.10.0 beats 0.3.0), ignoring a release candidate and tags that are not versions" "[ \"\$(cat $I/VERSION)\" = 0.10.0 ]"
+fresh; publish 0.3.0; list v0.1.0 v0.3.0; install --version 0.1.0
+check "--version picks that release" "[ \"\$(cat $I/VERSION)\" = 0.1.0 ]"
+fresh; install --version v0.1.0
+check "--version accepts the tag's own spelling" "[ \"\$(cat $I/VERSION)\" = 0.1.0 ]"
 
-UNIT="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
-reset; run --dir "$WORK/inst" --kiosk
-check "--kiosk installs a systemd user service that runs the kiosk script from the install folder" '[ -f "$UNIT" ] && grep -q "^ExecStart=$WORK/inst/scripts/kiosk.sh\$" "$UNIT" && grep -q "^Restart=always\$" "$UNIT" && grep -q "^WantedBy=default.target\$" "$UNIT"'
-check "--kiosk: the service itself knows nothing about the port or rotation (the script reads .env)" '! grep -qi "port\|rotate\|8080\|kiosk=1" "$UNIT"'
-check "--kiosk reloads systemd and enables and starts the service" 'grep -q "^systemctl --user daemon-reload" "$WORK/docker.log" && grep -q "^systemctl --user enable --now famhomebase-kiosk.service" "$WORK/docker.log"'
-check "--kiosk turns on desktop autologin" 'grep -q "raspi-config nonint do_boot_behaviour B4" "$WORK/docker.log"'
-check "--kiosk writes no labwc autostart file" '[ ! -e "$WORK/home/.config/labwc/autostart" ]'
-if ! command -v wlr-randr >/dev/null 2>&1; then # (skipped on a machine that has it)
-  reset; run --dir "$WORK/inst" --kiosk
-  check "--kiosk installs the screen rotation tool (wlr-randr) when it is missing" 'grep -q "^apt-get install -y wlr-randr\$" "$WORK/docker.log"'
-fi
-for tool in wlr-randr; do printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/$tool"; chmod +x "$WORK/bin/$tool"; done
-reset; run --dir "$WORK/inst" --kiosk
-check "--kiosk leaves apt alone when wlr-randr is already there" '! grep -q "^apt-get" "$WORK/docker.log"'
-rm -f "$WORK/bin/wlr-randr"
-reset; run --dir "$WORK/inst" --kiosk --no-start
-check "--kiosk --no-start enables the service but does not start it" 'grep -q "^systemctl --user enable famhomebase-kiosk.service" "$WORK/docker.log" && ! grep -q "enable --now" "$WORK/docker.log"'
-reset; run --dir "$WORK/inst"
-check "no --kiosk and no old autostart line: the desktop and systemd are left alone" '[ ! -e "$UNIT" ] && ! grep -q "raspi-config\|^systemctl\|^pkill" "$WORK/docker.log"'
-reset; ENVV="NO_SYSTEMD=1" run --dir "$WORK/inst" --kiosk; rc=$?
-check "no reachable user systemd: the install still succeeds, and says how to enable the service" '[ $rc -eq 0 ] && grep -q "Could not reach your user" "$WORK/out.log" && [ -f "$UNIT" ]'
+fresh; publish 0.2.0 badsum; list v0.2.0; install; st=$?
+check "a bad checksum installs nothing" "[ $st != 0 ] && [ ! -e $I/VERSION ] && grep -q 'checksum mismatch' \$WORK/err"
+fresh; list nightly v1.0.0-beta; install; st=$?
+check "no release yet is said plainly" "[ $st != 0 ] && grep -q 'no release' \$WORK/err"
+fresh; install --env dev; st=$?
+check "an unknown environment is refused before anything is downloaded" "[ $st != 0 ] && [ ! -e $I ]"
+fresh; install --api-url https://example.net/path; st=$?
+check "an address with a path is refused" "[ $st != 0 ] && [ ! -e $I ]"
+fresh; install --api-url http://example.net; st=$?
+check "a plain http address is refused" "[ $st != 0 ]"
+fresh; install --dir "$WORK/with space"; st=$?
+check "an install folder with a space is refused before anything is downloaded" "[ $st != 0 ] && grep -q 'plain path' \$WORK/err"
+fresh; install --port 0; st=$?
+check "a bad port is refused" "[ $st != 0 ]"
+fresh; FAIL_PULL=1 install; st=$?
+check "an image that cannot be pulled stops before the host setup, and says why" "[ $st != 0 ] && [ ! -s \$WORK/host.log ] && grep -q 'not public yet' \$WORK/err"
+fresh; FAIL_PULL=1 install --no-start; st=$?
+check "--no-start does not pull, and passes --no-start on" "[ $st = 0 ] && ! grep -q '^pull' \$DOCKER_LOG && grep -q -- '--no-start' \$WORK/host.log"
+fresh; install --bogus; st=$?
+check "an unknown option is refused" "[ $st != 0 ]"
 
-# an older install opened the dashboard from the labwc autostart: moved to the service automatically
-OLDLINE="sh -c 'until curl -sf http://localhost:8080/ >/dev/null; do sleep 2; done; exec chromium-browser --kiosk \"http://localhost:8080/?kiosk=1\"' &"
-AS="$WORK/home/.config/labwc/autostart"
-reset; mkdir -p "$WORK/home/.config/labwc"; printf '# my own thing\n%s\n%s\nwlr-randr --output HDMI-A-1 --transform 90\n' "# Wait for the dashboard to be up, then open it full-screen on the Pi's display." "$OLDLINE" > "$AS"; run --dir "$WORK/inst"
-check "migration: an old autostart kiosk line (and the comment this installer wrote above it) is removed, the owner's other lines stay, the old file is kept" '! grep -q "kiosk=1" "$AS" && ! grep -q "Wait for the dashboard" "$AS" && grep -q "^# my own thing\$" "$AS" && grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$AS" && grep -q "kiosk=1" "$AS.bak"'
-check "migration: the service is installed and started, the old browser stopped, and the user is told" '[ -f "$UNIT" ] && grep -q "enable --now famhomebase-kiosk.service" "$WORK/docker.log" && grep -q "^pkill -x chromium" "$WORK/docker.log" && grep -q "Moved the kiosk" "$WORK/out.log"'
-: > "$WORK/docker.log"; run --dir "$WORK/inst"
-check "migration: run again, nothing left to move" '! grep -q "^pkill" "$WORK/docker.log" && ! grep -q "Moved the kiosk" "$WORK/out.log"'
-
-# rotation
-reset; run --dir "$WORK/inst" --rotate 90
-check "--rotate 90 is saved in .env for the kiosk script to apply" 'grep -q "^FAMHOMEBASE_ROTATE=90\$" "$WORK/inst/.env"'
-run --dir "$WORK/inst" --rotate 270
-check "--rotate again replaces it (one line)" '[ "$(grep -c "^FAMHOMEBASE_ROTATE=" "$WORK/inst/.env")" = 1 ] && grep -q "^FAMHOMEBASE_ROTATE=270\$" "$WORK/inst/.env"'
-run --dir "$WORK/inst" --rotate normal
-check "--rotate normal puts the screen back" 'grep -q "^FAMHOMEBASE_ROTATE=normal\$" "$WORK/inst/.env"'
-reset; run --dir "$WORK/inst"
-check "no --rotate: the screen is left alone (no setting written)" '! grep -q "FAMHOMEBASE_ROTATE" "$WORK/inst/.env"'
-reset; run --dir "$WORK/inst" --kiosk; : > "$WORK/docker.log"; run --dir "$WORK/inst" --rotate 90
-check "--rotate on a running kiosk restarts the service so it takes effect" 'grep -q "^systemctl --user restart famhomebase-kiosk.service" "$WORK/docker.log"'
-for bad in 45 left "" 1; do
-  reset; run --dir "$WORK/inst" --rotate "$bad"; rc=$?
-  check "--rotate '$bad' is refused before anything is downloaded" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ]'
-done
-
-reset; badd="$FIXTURES/$REPO/releases/download/v0.1.6"; cp "$badd/famhomebase-pi-0.1.6.tar.gz.sha256" "$WORK/good.sha"; echo "0000  x" > "$badd/famhomebase-pi-0.1.6.tar.gz.sha256"; run --dir "$WORK/inst"; rc=$?
-check "bad checksum: installs nothing" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ] && grep -q "checksum mismatch" "$WORK/out.log"'
-cp "$WORK/good.sha" "$badd/famhomebase-pi-0.1.6.tar.gz.sha256"
-
-reset; run --dir "$WORK/inst" --version abc; rc=$?
-check "rejects a malformed version" '[ $rc -ne 0 ] && grep -q "not a version" "$WORK/out.log"'
-reset; run --dir "$WORK/inst" --version 9.9.9; rc=$?
-check "a release that does not exist is a clear error" '[ $rc -ne 0 ] && grep -q "could not download release 9.9.9" "$WORK/out.log"'
-reset; ENVV="NO_COMPOSE=1" run --dir "$WORK/inst"; rc=$?
-check "no compose plugin: says so before downloading anything" '[ $rc -ne 0 ] && grep -q "Compose plugin is missing" "$WORK/out.log" && [ ! -e "$WORK/inst" ]'
-reset; run --bogus; rc=$?
-check "unknown option is an error" '[ $rc -ne 0 ] && grep -q "unknown option" "$WORK/out.log"'
-
-# ---- the port
-reset; run --dir "$WORK/inst" --port 80
-check "--port 80: written to .env, and the URLs have no port" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && grep -q "http://localhost/?kiosk=1" "$WORK/out.log" && ! grep -q ":8080" "$WORK/out.log"'
-reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst"
-check "re-running without --port keeps the port you chose" 'grep -q "^FAMHOMEBASE_PORT=9090\$" "$WORK/inst/.env" && grep -q "localhost:9090" "$WORK/out.log"'
-reset; run --dir "$WORK/inst" --port 9090; run --dir "$WORK/inst" --port 80
-check "--port changes an existing choice, once (no duplicate line)" '[ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ] && grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env"'
-reset; run --dir "$WORK/inst" --port 80; run --dir "$WORK/inst"
-check "an install already on port 80 stays there on re-run" 'grep -q "^FAMHOMEBASE_PORT=80\$" "$WORK/inst/.env" && [ "$(grep -c "^FAMHOMEBASE_PORT=" "$WORK/inst/.env")" = 1 ]'
-for bad in abc 0 70000 -1 ""; do
-  reset; run --dir "$WORK/inst" --port "$bad"; rc=$?
-  check "--port '$bad' is refused before anything is downloaded" '[ $rc -ne 0 ] && [ ! -e "$WORK/inst/VERSION" ]'
-done
-
-echo; echo "$n checks, $fail failed"
-[ "$fail" -eq 0 ]
+echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

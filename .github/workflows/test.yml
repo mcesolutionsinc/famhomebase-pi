@@ -10,23 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Lint the shell scripts
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/kiosk.sh scripts/host-setup.sh scripts/generate-key.sh updater/update.sh scripts/cloud-run.sh scripts/cloud-host-setup.sh scripts/cloud-update.sh scripts/cloud-install.sh tests/test-cloud-*.sh
+      - name: Lint the shell scripts and their tests
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh tests/test-run.sh tests/test-host-setup.sh tests/test-update.sh tests/test-install.sh
+      - name: Test the container's start script
+        run: sh tests/test-run.sh
+      - name: Test the host setup
+        run: sh tests/test-host-setup.sh
       - name: Test the updater
-        run: sh tests/test-updater.sh
+        run: sh tests/test-update.sh
       - name: Test the installer
         run: sh tests/test-install.sh
       - name: Test the kiosk launcher
         run: sh tests/test-kiosk.sh
-      - name: Test the host-side update step
-        run: sh tests/test-host-setup.sh
-      - name: Test the cloud display's scripts
-        run: |
-          sh tests/test-cloud-run.sh
-          sh tests/test-cloud-host-setup.sh
-          sh tests/test-cloud-update.sh
-          sh tests/test-cloud-install.sh
-      - name: The compose file parses
-        run: docker compose -f docker-compose.yml config > /dev/null
-        env:
-          FAMHOMEBASE_DIR: /tmp/famhomebase-pi
