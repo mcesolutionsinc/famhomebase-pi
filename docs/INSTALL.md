@@ -78,7 +78,7 @@ rotation (Devices, then the device's Settings).
 | The scripts and `VERSION` | `/usr/local/lib/famhomebase/` |
 | The `famhomebase` command | `/usr/local/bin/famhomebase` (`status`, `logs`, `update`, `version`, `settings`) |
 | Your settings | `/etc/famhomebase/famhomebase.env` (an update never changes it; the release's own example is `famhomebase.env.example` beside it) |
-| State: the saved copy for a way back, the kiosk's browser profile | `/var/lib/famhomebase/` |
+| State: the saved copy for a way back, the kiosk's browser profile, the screen's rotation for the boot splash | `/var/lib/famhomebase/` |
 | This guide, the README and the licence | `/usr/local/share/doc/famhomebase/` |
 | The systemd units | `/etc/systemd/system/`: `famhomebase.service`, `famhomebase-update.service`, `famhomebase-update.timer`, and with `--kiosk` `famhomebase-kiosk.service` |
 
@@ -89,6 +89,14 @@ rotation (Devices, then the device's Settings).
   shell), on the first virtual terminal. There is **no desktop and no login manager**: the Pi boots to the display. Its saved profile in
   `/var/lib/famhomebase/kiosk-profile` keeps the display's pairing and its last layout across restarts and power cuts. Check it with
   `systemctl status famhomebase-kiosk` and `journalctl -u famhomebase-kiosk`.
+- **The boot splash** (`--kiosk`): from the first moment the kernel runs, the screen shows the FamHomeBase logo and three moving dots (a wide
+  logo on a landscape screen, a tall one on a portrait screen, turned for how the screen is mounted), with no boot text and no cursor. It is a
+  Plymouth theme made by `splash.sh`. The first couple of seconds, while the Pi's own firmware starts, are plain black. When the browser
+  opens, the app's own start screen shows the same logo and dots, so nothing seems to change. Plymouth cannot ask the cloud how the screen is
+  mounted, so the display's page tells its web server (`PUT /local/rotation`, kept in `/var/lib/famhomebase/state/rotation`) as soon as it knows;
+  the unit `famhomebase-splash.path` then makes the theme again and rebuilds the boot image (about half a minute, once for each change). A
+  display that has never been paired, or whose rotation you have just changed, shows the splash turned for the old rotation until the next
+  boot after that.
 - **The updater**: the `famhomebase-update` timer runs `update.sh` every few hours (section 7).
 
 Everything in `/usr/local` is root's, so nothing that runs as root lives in a user's folder.

@@ -51,8 +51,8 @@ export FAMHOMEBASE_HOMES="$WORK/home" SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$
 fresh() {
   rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin"; : > "$CTL_LOG"
   mkdir -p "$WORK/inst" "$WORK/home" "$WORK/nm" "$WORK/etc"
-  cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
-  unset FAIL_RELOAD ACTIVE DESKTOP_UP DEFAULT_TARGET FAIL_APT FAIL_USERADD
+  cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; printf '#!/bin/sh\necho "splash $*" >> "%s"\n[ -z "${FAIL_SPLASH:-}" ]\n' "$CTL_LOG" > "$WORK/inst/splash.sh"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
+  unset FAIL_SPLASH FAIL_RELOAD ACTIVE DESKTOP_UP DEFAULT_TARGET FAIL_APT FAIL_USERADD
 }
 setup() { sh "$WORK/inst/host-setup.sh" "$@" > "$WORK/out" 2> "$WORK/err"; }
 INST="$WORK/inst"; ETC="$WORK/etc"; STATE="$WORK/state"; BIN="$WORK/usrbin"; UNIT="$WORK/system"; KU="$UNIT/famhomebase-kiosk.service"
@@ -99,6 +99,18 @@ fresh; mkdir -p "$WORK/home/x/.config/systemd/user" "$STATE"; printf '[Service]\
 check "an update of an install before 0.4.0 (a kiosk by the note it left, no --user) finds the old desktop kiosk service in a home folder and removes it" "[ ! -e $WORK/home/x/.config/systemd/user/famhomebase-kiosk.service ] && [ -f $KU ] && grep -q 'user: systemctl --user disable --now famhomebase-kiosk.service' \$CTL_LOG"
 fresh; mkdir -p "$(dirname "$OLD")"; printf '[Service]\nExecStart=x\n' > "$OLD"; setup --user tester
 check "without --kiosk (and no kiosk of ours) it is left alone" "[ -e $OLD ] && ! grep -q '^user:' \$CTL_LOG"
+
+# the boot splash
+fresh; setup --kiosk
+check "--kiosk sets up the boot splash (the packages, the boot settings, the theme)" "grep -q '^splash install' \$CTL_LOG"
+check "and writes the unit that makes the theme again when the page writes a new rotation: a path unit on the rotation file, and the service it runs" "grep -q '^PathChanged=$STATE/state/rotation' $UNIT/famhomebase-splash.path && grep -q '^Unit=famhomebase-splash.service' $UNIT/famhomebase-splash.path && grep -Fxq 'ExecStart=/bin/sh \"$INST/splash.sh\" apply' $UNIT/famhomebase-splash.service && grep -q 'enable famhomebase-splash.path' \$CTL_LOG && grep -q 'start famhomebase-splash.path' \$CTL_LOG"
+check "plymouth keeps the last picture on the screen when it quits, and the kiosk starts after plymouth has left (cage cannot have the screen before)" "grep -q 'plymouth quit --retain-splash' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^After=.*plymouth-quit.service plymouth-quit-wait.service' $KU"
+fresh; setup
+check "no splash without --kiosk" "! grep -q '^splash' \$CTL_LOG && [ ! -e $UNIT/famhomebase-splash.path ]"
+fresh; FAIL_SPLASH=1 setup --kiosk; st=$?
+check "a splash that cannot be set up is a warning, and the kiosk is still set up" "[ $st = 0 ] && grep -q 'boot splash could not be set up' \$WORK/out && [ -f $KU ]"
+fresh; rm -f "$INST/splash.sh"; setup --kiosk; st=$?
+check "a release without the splash script (an old payload) just has no splash" "[ $st = 0 ] && [ -f $KU ] && [ ! -e $UNIT/famhomebase-splash.path ]"
 
 # a user that exists already (made by an earlier run) is checked for its groups
 printf '#!/bin/sh\ncase "$*" in "-nG famhomebase-kiosk") echo famhomebase-kiosk ;; "famhomebase-kiosk") exit 0 ;; "-u famhomebase-kiosk") echo 999 ;; *) exec /usr/bin/id "$@" ;; esac\n' > "$WORK/bin/id"; chmod +x "$WORK/bin/id"

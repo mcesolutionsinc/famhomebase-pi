@@ -33,6 +33,11 @@ update changes its script.
 into its saved profile and crashes on it at the next start. Releases from 0.2.0 stop it and clean it up by themselves. On an older install:
 `rm -rf /var/lib/famhomebase/kiosk-profile/WidevineCdm` and then `sudo systemctl restart famhomebase-kiosk`. The pairing is kept.
 
+**The boot splash is the wrong way up, or the wrong logo shape**: the splash is made for the rotation the display last told the Pi (section 5 of
+INSTALL.md). Change the rotation on the website, wait until the dashboard has turned, then give it a minute (the boot image is rebuilt) and
+reboot. `cat /var/lib/famhomebase/state/rotation` shows what the Pi knows, and `journalctl -u famhomebase-splash` what the last rebuild did.
+`sudo sh /usr/local/lib/famhomebase/splash.sh apply` makes it again by hand.
+
 **The screen is the wrong way up**: it is a setting of the device on the website (Devices, the device's Settings, Screen rotation). The QR
 screen of a device that has never been paired can't know its rotation, and shows unturned until it is paired.
 

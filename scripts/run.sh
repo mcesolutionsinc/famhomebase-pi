@@ -15,6 +15,7 @@ set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ENV_FILE="${FAMHOMEBASE_ETC_DIR:-/etc/famhomebase}/famhomebase.env"
+STATE_DIR="${FAMHOMEBASE_STATE_DIR:-/var/lib/famhomebase}"
 DOCKER=${DOCKER:-docker}
 NAME=famhomebase-display
 
@@ -38,7 +39,10 @@ jlog info "starting $IMAGE:$VERSION on $BIND:$PORT for $ENVNAME ($API)"
 # a leftover from a crash or an update would hold the name
 "$DOCKER" rm -f "$NAME" >/dev/null 2>&1 || true
 # 127.0.0.1, not localhost: in the Alpine nginx image localhost can resolve to ::1 first and nginx listens on IPv4 only.
-exec "$DOCKER" run --rm --name "$NAME" -p "$BIND:$PORT:8080" \
+# The state folder is shared with the container as /state: the page tells its web server how the screen is mounted, and the web server
+# keeps that in a file there for the boot splash (see splash.sh).
+mkdir -p "$STATE_DIR/state" 2>/dev/null
+exec "$DOCKER" run --rm --name "$NAME" -p "$BIND:$PORT:8080" -v "$STATE_DIR/state:/state" \
   -e "FAMHOMEBASE_API_URL=$API" -e "FAMHOMEBASE_ENV=$ENVNAME" \
   --health-cmd "wget -qO- http://127.0.0.1:8080/runtime-config.json" \
   --health-interval 30s --health-timeout 5s --health-retries 3 --health-start-period 10s \
