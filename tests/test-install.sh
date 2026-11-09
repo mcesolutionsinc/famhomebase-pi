@@ -104,10 +104,8 @@ check "a compact release list, with the newest release far down it, is read corr
 # not root (and no test override): refused, and says how to run it
 fresh; env -u FAMHOMEBASE_NO_ROOT sh "$SCRIPT" > "$WORK/out" 2> "$WORK/err"; st=$?
 check "not run as root: refused with the sudo command, before anything is downloaded" "[ \$(id -u) = 0 ] || { [ $st != 0 ] && grep -q 'needs root' \$WORK/err && [ ! -e $L ]; }"
-fresh; SUDO_USER='' install --kiosk; st=$?
-check "--kiosk with no desktop user to give it (no sudo user, no --user) is refused before anything is downloaded" "[ $st != 0 ] && grep -q -- '--user NAME' \$WORK/err && [ ! -e $L ]"
 fresh; SUDO_USER='' install --kiosk --user kid
-check "--user names the desktop user" "grep -q -- '--user kid --kiosk' \$WORK/host.log"
+check "--user names the user whose old desktop kiosk is removed" "grep -q -- '--user kid --kiosk' \$WORK/host.log"
 
 # an install made before 0.3.0 kept its settings in ~/famhomebase/.env
 fresh; printf 'FAMHOMEBASE_ENV=staging\nFAMHOMEBASE_API_URL=https://staging.example.net\nFAMHOMEBASE_PORT=8080\nFAMHOMEBASE_DIR=/home/x/famhomebase\nAUTO_UPDATE=false\n' > "$WORK/legacy.env"

@@ -5,8 +5,8 @@ installing and running the display; the website's guide covers building what it 
 
 ## 1. What you need
 
-- A Raspberry Pi 3, 4 or 5 (64-bit) running **64-bit** Raspberry Pi OS with the **desktop** (the display runs in a browser), or any 64-bit
-  Linux machine with systemd and a desktop. A Pi 4 is a comfortable choice.
+- A Raspberry Pi 3, 4 or 5 (64-bit) running **64-bit** Raspberry Pi OS, **Lite is enough** (no desktop is needed: the kiosk runs under `cage`,
+  and `--kiosk` installs it and the browser), or any 64-bit Linux machine with systemd. A Pi 4 is a comfortable choice.
 - A screen, and SSH access to the Pi from a laptop
 - Docker (next section). Docker Compose is **not** needed: the display is one container started by systemd.
 - A FamHomeBase account on the website, with a display made (the Displays page)
@@ -53,8 +53,8 @@ It needs root (that is the `sudo`): it installs into `/usr/local` and `/etc`, th
 | `--env`      | `prod` or `staging` (staging shows a STAGING tag and uses the staging site)                                      | `prod`                          |
 | `--api-url`  | where the cloud is, `https://host` with no path; a phone scanning the QR code opens the same address            | the site that goes with `--env` |
 | `--port`     | the port on this machine (the display listens on `127.0.0.1` only: nothing else on the network can reach it)    | `80`                            |
-| `--kiosk`    | show the display full-screen at boot (Raspberry Pi OS desktop): turns on desktop autologin, runs the kiosk service | off                             |
-| `--user`     | whose desktop the kiosk runs in                                                                                  | the user who ran `sudo`         |
+| `--kiosk`    | show the display full-screen at boot, with no desktop: installs `cage` and the browser if missing and runs the kiosk as a system service of its own user | off                             |
+| `--user`     | the user whose old desktop kiosk service (installs before 0.4.0) is removed                                      | the user who ran `sudo`         |
 | `--version`  | install that release instead of the newest                                                                       | the newest                      |
 | `--no-start` | set up, but start nothing                                                                                        |                                 |
 
@@ -80,13 +80,15 @@ rotation (Devices, then the device's Settings).
 | Your settings | `/etc/famhomebase/famhomebase.env` (an update never changes it; the release's own example is `famhomebase.env.example` beside it) |
 | State: the saved copy for a way back, the kiosk's browser profile | `/var/lib/famhomebase/` |
 | This guide, the README and the licence | `/usr/local/share/doc/famhomebase/` |
-| The systemd units | `/etc/systemd/system/`: `famhomebase.service`, `famhomebase-update.service`, `famhomebase-update.timer`; the kiosk is the user unit `famhomebase-kiosk` |
+| The systemd units | `/etc/systemd/system/`: `famhomebase.service`, `famhomebase-update.service`, `famhomebase-update.timer`, and with `--kiosk` `famhomebase-kiosk.service` |
 
 - **The container** (`ghcr.io/mcesolutionsinc/famhomebase-pi:<version>`): nginx serving the page and passing `/api/` on to the cloud. Started by
   the `famhomebase` unit through `run.sh`, published on `127.0.0.1:80`. Logs: `famhomebase logs` (or `journalctl -u famhomebase`).
-- **The kiosk** (`--kiosk`): the user service `famhomebase-kiosk` runs `kiosk.sh`: Chromium full-screen on `http://localhost/`, with a saved
-  profile in `/var/lib/famhomebase/kiosk-profile` that keeps the display's pairing and its last layout across restarts and power cuts. Check it
-  with `systemctl --user status famhomebase-kiosk`.
+- **The kiosk** (`--kiosk`): the system service `famhomebase-kiosk` runs `cage` (a compositor that shows one program, full screen, and
+  nothing else) which runs `kiosk.sh`: Chromium on `http://localhost/`. It runs as its own user, `famhomebase-kiosk` (no password, no
+  shell), on the first virtual terminal. There is **no desktop and no login manager**: the Pi boots to the display. Its saved profile in
+  `/var/lib/famhomebase/kiosk-profile` keeps the display's pairing and its last layout across restarts and power cuts. Check it with
+  `systemctl status famhomebase-kiosk` and `journalctl -u famhomebase-kiosk`.
 - **The updater**: the `famhomebase-update` timer runs `update.sh` every few hours (section 7).
 
 Everything in `/usr/local` is root's, so nothing that runs as root lives in a user's folder.
@@ -109,7 +111,7 @@ The file is `/etc/famhomebase/famhomebase.env` (`famhomebase settings` prints th
 | `FAMHOMEBASE_PROFILE`  | where the kiosk keeps the browser's saved data                                          | `/var/lib/famhomebase/kiosk-profile`   |
 | `FAMHOMEBASE_IMAGE`    | the image, without a tag (for one you built yourself)                                   | `ghcr.io/mcesolutionsinc/famhomebase-pi` |
 
-After changing it run `sudo systemctl restart famhomebase` (and `systemctl --user restart famhomebase-kiosk` for the profile).
+After changing it run `sudo systemctl restart famhomebase` (and `sudo systemctl restart famhomebase-kiosk` for the profile).
 
 **Screen rotation is not a setting here.** It is a setting of the device on the website, so it can be changed without touching the Pi.
 
@@ -145,7 +147,7 @@ Open <http://localhost:8080/>; stop it with Ctrl-C. (An image you built yourself
 - It picks up an edit from the website within seconds (live push), and checks at least once a minute.
 - Pairing codes change every 10 minutes. A display nobody sets up stops asking after 24 hours and says "Restart this device to set it up."
 
-## 10. Moving from an install before 0.3.0
+## 10. Moving from an earlier install
 
 Before 0.3.0 the display lived in a folder in the user's home (`~/famhomebase`, with its settings in `~/famhomebase/.env`) and the kiosk
 browser's saved data in `~/.local/share/famhomebase-kiosk`, on port 8080 or 80 and open to the whole network. Run this release's installer as
@@ -158,12 +160,19 @@ on `127.0.0.1:80`. Then:
 
 An install of 0.2.x does not update itself to 0.3.0 (the layout changed): it stays on 0.2.x until you run the installer.
 
+**From 0.4.0 the kiosk has no desktop.** An install that ran the kiosk in the desktop (0.3.x and before) moves by itself when it updates: the
+old user service is removed, `cage`, the browser and the `famhomebase-kiosk` user are set up, and the Pi boots to the text target instead
+of the desktop. A Pi used for other things as well as the display should not use `--kiosk`: it keeps its desktop and the display runs only
+as the container (open <http://localhost/> yourself).
+
 ## 11. Uninstalling
 
 ```bash
 sudo systemctl disable --now famhomebase famhomebase-update.timer
 sudo rm /etc/systemd/system/famhomebase.service /etc/systemd/system/famhomebase-update.* && sudo systemctl daemon-reload
-systemctl --user disable --now famhomebase-kiosk   # if it was a kiosk
-rm -f ~/.config/systemd/user/famhomebase-kiosk.service
+sudo systemctl disable --now famhomebase-kiosk   # if it was a kiosk
+sudo rm -f /etc/systemd/system/famhomebase-kiosk.service && sudo systemctl daemon-reload
+sudo systemctl set-default graphical.target       # if you want the desktop back (a Pi with a desktop installed)
+sudo userdel famhomebase-kiosk
 sudo rm -rf /usr/local/lib/famhomebase /usr/local/share/doc/famhomebase /usr/local/bin/famhomebase /etc/famhomebase /var/lib/famhomebase
 ```

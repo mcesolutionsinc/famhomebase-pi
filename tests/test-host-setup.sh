@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tests for scripts/host-setup.sh with stubbed systemctl, runuser and raspi-config, writing into scratch folders (no root,
+# Tests for scripts/host-setup.sh with stubbed systemctl, runuser, apt-get, useradd and chown, writing into scratch folders (no root,
 # no systemd). Run: sh tests/test-host-setup.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -15,7 +15,10 @@ cat > "$WORK/bin/systemctl" <<'STUB'
 #!/bin/sh
 echo "system: $*" >> "$CTL_LOG"
 [ "${FAIL_RELOAD:-}" = 1 ] && [ "$1" = daemon-reload ] && exit 1
-case "$*" in *is-active*) [ "${ACTIVE:-}" = 1 ]; exit $? ;; esac
+case "$*" in
+  *get-default*) echo "${DEFAULT_TARGET:-graphical.target}"; exit 0 ;;
+  *is-active*) case "$*" in *display-manager*) [ "${DESKTOP_UP:-}" = 1 ]; exit $? ;; *) [ "${ACTIVE:-}" = 1 ]; exit $? ;; esac ;;
+esac
 exit 0
 STUB
 cat > "$WORK/bin/runuser" <<'STUB'
@@ -24,27 +27,28 @@ cat > "$WORK/bin/runuser" <<'STUB'
 shift 5   # -u NAME -- env XDG=...
 shift     # the systemctl path
 echo "user: systemctl $*" >> "$CTL_LOG"
-[ "${FAIL_USER:-}" = 1 ] && exit 1
-case "$*" in *is-active*) [ "${ACTIVE:-}" = 1 ]; exit $? ;; esac
 exit 0
 STUB
-cat > "$WORK/bin/raspi-config" <<'STUB'
-#!/bin/sh
-echo "raspi-config $*" >> "$CTL_LOG"
-STUB
+printf '#!/bin/sh\necho "apt-get $*" >> "$CTL_LOG"\n[ -z "${FAIL_APT:-}" ]\n' > "$WORK/bin/apt-get"
+printf '#!/bin/sh\necho "useradd $*" >> "$CTL_LOG"\n[ -z "${FAIL_USERADD:-}" ]\n' > "$WORK/bin/useradd"
+printf '#!/bin/sh\necho "chown $*" >> "$CTL_LOG"\n' > "$WORK/bin/chown"
 chmod +x "$WORK/bin/"*
-export PATH="$WORK/bin:$PATH" CTL_LOG="$WORK/ctl.log"
+# the tools the kiosk needs, as far as `command -v` can tell: cage and chromium are "installed" unless a test removes them
+mkdir -p "$WORK/tools"; printf '#!/bin/sh\n' > "$WORK/tools/cage"; printf '#!/bin/sh\n' > "$WORK/tools/chromium"; chmod +x "$WORK/tools/"*
+export PATH="$WORK/bin:$WORK/tools:$PATH" CTL_LOG="$WORK/ctl.log"
 export FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
 export FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_SYSTEMD_DIR="$WORK/system" FAMHOMEBASE_USER_HOME="$WORK/home" FAMHOMEBASE_NM_CONF_DIR="$WORK/nm" FAMHOMEBASE_NET_DIR="$WORK/net"
-export SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser"
+export FAMHOMEBASE_HOMES="$WORK/home" SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser" APT_GET="$WORK/bin/apt-get" USERADD="$WORK/bin/useradd" CHOWN="$WORK/bin/chown"
 
 fresh() {
   rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin"; : > "$CTL_LOG"
   mkdir -p "$WORK/inst" "$WORK/home" "$WORK/nm" "$WORK/etc"
   cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
+  unset FAIL_RELOAD ACTIVE DESKTOP_UP DEFAULT_TARGET FAIL_APT FAIL_USERADD
 }
 setup() { sh "$WORK/inst/host-setup.sh" "$@" > "$WORK/out" 2> "$WORK/err"; }
-INST="$WORK/inst"; ETC="$WORK/etc"; STATE="$WORK/state"; BIN="$WORK/usrbin"; UNIT="$WORK/system"; KU="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
+INST="$WORK/inst"; ETC="$WORK/etc"; STATE="$WORK/state"; BIN="$WORK/usrbin"; UNIT="$WORK/system"; KU="$UNIT/famhomebase-kiosk.service"
+OLD="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
 
 fresh; setup; st=$?
 check "writes the display unit: runs run.sh, restarts always, after docker" "[ $st = 0 ] && grep -Fxq 'ExecStart=/bin/sh \"$INST/run.sh\"' $UNIT/famhomebase.service && grep -q '^Restart=always' $UNIT/famhomebase.service && grep -q '^After=docker.service' $UNIT/famhomebase.service"
@@ -52,48 +56,57 @@ check "the folder is quoted in the unit, so a path with odd characters still sta
 check "the display unit removes the container when it stops" "grep -q 'ExecStopPost=.*docker rm -f famhomebase-display' $UNIT/famhomebase.service"
 check "writes the update service and a timer every 6 hours by default" "grep -Fxq 'ExecStart=/bin/sh \"$INST/update.sh\"' $UNIT/famhomebase-update.service && grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-update.timer"
 check "enables and starts the display and the timer" "grep -q 'enable famhomebase.service famhomebase-update.timer' \$CTL_LOG && grep -q 'system: start famhomebase.service' \$CTL_LOG && ! grep -q 'system: restart famhomebase.service' \$CTL_LOG && grep -q 'start famhomebase-update.timer' \$CTL_LOG"
-check "no kiosk without --kiosk" "[ ! -e $KU ] && ! grep -q '^user:' \$CTL_LOG && ! grep -q raspi-config \$CTL_LOG"
-
+check "no kiosk without --kiosk: no unit, no packages, no user, no change of the boot target" "[ ! -e $KU ] && ! grep -q 'apt-get\\|useradd\\|set-default' \$CTL_LOG && [ ! -e $STATE/kiosk-profile ]"
 check "makes the state folder and the famhomebase command (a link to the one in the install)" "[ -d $STATE ] && [ \"\$(readlink $BIN/famhomebase)\" = $INST/famhomebase ]"
-check "no kiosk profile folder without --kiosk" "[ ! -e $STATE/kiosk-profile ]"
 fresh; ACTIVE=1 setup
 check "installing over a running display restarts it, so it runs what was just written" "grep -q 'system: restart famhomebase.service' \$CTL_LOG"
-fresh; setup --kiosk
-check "--kiosk makes the kiosk's browser profile folder in the state folder, for the kiosk user" "[ -d $STATE/kiosk-profile ] && [ \$(stat -c %U $STATE/kiosk-profile) = \$(id -un) ]"
 
 fresh; echo 'CHECK_INTERVAL_HOURS=12' > "$ETC/famhomebase.env"; setup
 check "the timer follows CHECK_INTERVAL_HOURS" "grep -q '^OnUnitActiveSec=12h' $UNIT/famhomebase-update.timer"
 fresh; echo 'CHECK_INTERVAL_HOURS=9999' > "$ETC/famhomebase.env"; setup
 check "an interval out of range falls back to 6" "grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-update.timer"
 
+# --- the kiosk
 fresh; setup --kiosk; st=$?
-check "--kiosk writes the kiosk unit for this install's script and turns on desktop autologin" "[ $st = 0 ] && grep -Fxq 'ExecStart=\"$INST/kiosk.sh\"' $KU && grep -q 'raspi-config nonint do_boot_behaviour B4' \$CTL_LOG"
-check "--kiosk enables and starts the kiosk in the user's systemd, and switches off an older install's update watcher" "grep -q 'user: systemctl --user enable --now famhomebase-kiosk.service' \$CTL_LOG && grep -q 'disable --now famhomebase-host.path' \$CTL_LOG"
+check "--kiosk writes the kiosk as a system unit: cage running this install's kiosk.sh, as its own user, on the first terminal" "[ $st = 0 ] && grep -Fxq 'ExecStart=/usr/bin/cage -- \"$INST/kiosk.sh\"' $KU && grep -q '^User=famhomebase-kiosk' $KU && grep -q '^TTYPath=/dev/tty1' $KU && grep -q '^PAMName=login' $KU && grep -q '^Conflicts=getty@tty1.service' $KU && grep -q '^Restart=always' $KU"
+check "the kiosk brings terminal 1 to the front first (a desktop may have left another there), and ignores a failure of that" "grep -q '^ExecStartPre=-+/usr/bin/chvt 1' $KU"
+check "the kiosk is enabled and started, and boots to the text target (no login manager at boot)" "grep -q 'system: enable famhomebase-kiosk.service' \$CTL_LOG && grep -q 'system: start famhomebase-kiosk.service' \$CTL_LOG && grep -q 'system: set-default multi-user.target' \$CTL_LOG"
+check "it makes the service user (a system user with no shell) and gives it the browser profile folder" "grep -q '^useradd --system --home-dir $STATE/kiosk-home --create-home --shell /usr/sbin/nologin' \$CTL_LOG && [ -d $STATE/kiosk-profile ] && grep -q '^chown -R famhomebase-kiosk $STATE/kiosk-profile' \$CTL_LOG"
+check "with cage and the browser already there, nothing is installed" "! grep -q '^apt-get' \$CTL_LOG"
+fresh; DEFAULT_TARGET=multi-user.target setup --kiosk
+check "a Pi already booting to the text target is not changed" "! grep -q 'set-default' \$CTL_LOG"
+fresh; DESKTOP_UP=1 setup --kiosk
+check "a desktop that is running is stopped before the kiosk starts, so it does not hold the screen" "grep -n 'stop display-manager' \$CTL_LOG | head -1 | cut -d: -f1 | grep -q . && [ \"\$(grep -n 'stop display-manager' \$CTL_LOG | head -1 | cut -d: -f1)\" -lt \"\$(grep -n 'start famhomebase-kiosk' \$CTL_LOG | head -1 | cut -d: -f1)\" ]"
+fresh; mkdir -p "$WORK/tools2"; PATH="$WORK/bin:/usr/bin:/bin" setup --kiosk
+check "cage and the browser missing: installed with apt, then the kiosk is set up" "grep -q '^apt-get install -y -q cage' \$CTL_LOG && grep -q '^apt-get install -y -q chromium' \$CTL_LOG && [ -f $KU ]"
+fresh; FAIL_APT=1 PATH="$WORK/bin:/usr/bin:/bin" setup --kiosk; st=$?
+check "a package that cannot be installed is a warning that says what to do, not a failure" "[ $st = 0 ] && grep -q 'could not install cage' \$WORK/out"
+fresh; FAIL_USERADD=1 setup --kiosk; st=$?
+check "a user that cannot be made is a warning" "[ $st = 0 ] && grep -q 'could not make the user famhomebase-kiosk' \$WORK/out"
 
-fresh; mkdir -p "$(dirname "$KU")"; printf '[Service]\nExecStart=/home/pi/famhomebase-pi/scripts/kiosk.sh\n' > "$KU"; setup
-check "without --kiosk another install's kiosk service is left alone" "grep -q 'famhomebase-pi/scripts/kiosk.sh' $KU && ! grep -q '^user:' \$CTL_LOG && grep -q 'left the kiosk service alone' \$WORK/out"
-setup --kiosk
-check "with --kiosk it is taken over" "grep -Fxq 'ExecStart=\"$INST/kiosk.sh\"' $KU"
+# the kiosk of an earlier install ran in a user's desktop
+fresh; mkdir -p "$(dirname "$OLD")"; printf '[Service]\nExecStart="/home/pi/famhomebase/scripts/kiosk.sh"\n' > "$OLD"; setup --kiosk --user tester
+check "the old desktop kiosk service of the user is stopped, disabled and removed, so it does not fight the new one" "[ ! -e $OLD ] && grep -q 'user: systemctl --user disable --now famhomebase-kiosk.service' \$CTL_LOG && grep -q 'removed the old desktop kiosk service' \$WORK/out"
+fresh; mkdir -p "$WORK/home/x/.config/systemd/user" "$STATE"; printf '[Service]\nExecStart=x\n' > "$WORK/home/x/.config/systemd/user/famhomebase-kiosk.service"; echo sum > "$STATE/host-applied"; FAMHOMEBASE_HOMES="$WORK/home/x" setup --update
+check "an update of an install before 0.4.0 (a kiosk by the note it left, no --user) finds the old desktop kiosk service in a home folder and removes it" "[ ! -e $WORK/home/x/.config/systemd/user/famhomebase-kiosk.service ] && [ -f $KU ] && grep -q 'user: systemctl --user disable --now famhomebase-kiosk.service' \$CTL_LOG"
+fresh; mkdir -p "$(dirname "$OLD")"; printf '[Service]\nExecStart=x\n' > "$OLD"; setup --user tester
+check "without --kiosk (and no kiosk of ours) it is left alone" "[ -e $OLD ] && ! grep -q '^user:' \$CTL_LOG"
 
-fresh; rm -rf "${WORK:?}/home"; mkdir "$WORK/home"; setup --kiosk
-check "folders made on the way to the user's kiosk unit are the user's (not left as root's)" "[ \$(stat -c %U $WORK/home/.config/systemd/user) = \$(id -un) ]"
-
-fresh; mkdir -p "$(dirname "$KU")"; printf '[Service]\nExecStart="/home/pi/famhomebase/scripts/kiosk.sh"\n' > "$KU"; setup
-check "the kiosk unit of an install before 0.3.0 (script in ~/famhomebase/scripts) is moved to this install even without --kiosk" "grep -Fxq 'ExecStart=\"$INST/kiosk.sh\"' $KU"
-fresh; setup --kiosk --user tester; mkdir -p "$STATE/kiosk-profile"; touch "$STATE/kiosk-profile/Keep"; setup --update
-check "the kiosk's user is remembered, and the update (no sudo user, no --user) still handles the kiosk and the profile folder" "[ \"\$(cat $STATE/kiosk-user)\" = tester ] && [ -f $STATE/kiosk-profile/Keep ] && grep -q 'user: systemctl --user' \$CTL_LOG"
-
+# updates
 fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
 check "an update that changes nothing does not restart the kiosk, but restarts the display" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG && grep -q 'system: restart famhomebase.service' \$CTL_LOG"
-echo '# changed' >> "$INST/kiosk.sh"; : > "$CTL_LOG"; setup --kiosk --update
-check "an update that changes the kiosk script restarts the kiosk" "grep -q 'user: systemctl --user restart famhomebase-kiosk.service' \$CTL_LOG"
-: > "$CTL_LOG"; setup --kiosk --update
+fresh; setup --kiosk; : > "$CTL_LOG"; setup --update
+check "an update (no --kiosk: the unit already exists and is ours) still handles the kiosk" "[ -f $KU ] && grep -q 'system: enable famhomebase-kiosk.service' \$CTL_LOG"
+echo '# changed' >> "$INST/kiosk.sh"; : > "$CTL_LOG"; setup --update
+check "an update that changes the kiosk script restarts the kiosk" "grep -q 'system: restart famhomebase-kiosk.service' \$CTL_LOG"
+: > "$CTL_LOG"; setup --update
 check "and not again the next time" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG"
-
 fresh; setup --kiosk
-check "a fresh --kiosk install starts the kiosk once, without restarting it straight away" "grep -q 'enable --now famhomebase-kiosk.service' \$CTL_LOG && ! grep -q 'restart famhomebase-kiosk' \$CTL_LOG"
-fresh; ACTIVE=1 setup --kiosk
-check "a kiosk that was already running (on an older install) is moved onto the new files with a restart" "grep -q 'user: systemctl --user restart famhomebase-kiosk.service' \$CTL_LOG"
+check "a fresh --kiosk install starts the kiosk once, without restarting it straight away" "grep -q 'system: start famhomebase-kiosk.service' \$CTL_LOG && ! grep -q 'system: restart famhomebase-kiosk' \$CTL_LOG"
+fresh; setup --kiosk; echo '# new script' >> "$INST/kiosk.sh"; : > "$CTL_LOG"; ACTIVE=1 setup --kiosk
+check "installing over a running kiosk with a changed script restarts it" "grep -q 'system: restart famhomebase-kiosk.service' \$CTL_LOG"
+fresh; setup --kiosk; sed -i 's/^Restart=always/Restart=on-failure/' "$KU"; setup --update
+check "a unit changed by hand is put back by the next update" "grep -q '^Restart=always' $KU"
 
 fresh; mkdir -p "$UNIT"; for u in famhomebase-cloud.service famhomebase-cloud-update.service famhomebase-cloud-update.timer; do echo old > "$UNIT/$u"; done; setup
 check "the units of an earlier install named cloud are disabled and removed, so they do not fight the new ones for the container name and the port" "[ ! -e $UNIT/famhomebase-cloud.service ] && [ ! -e $UNIT/famhomebase-cloud-update.timer ] && [ ! -e $UNIT/famhomebase-cloud-update.service ] && grep -q 'disable --now famhomebase-cloud.service' \$CTL_LOG && grep -q 'removed the older unit famhomebase-cloud.service' \$WORK/out && [ -f $UNIT/famhomebase.service ]"
@@ -110,12 +123,10 @@ check "with no options it passes none on, and --update is kept" "grep -q '^sudo 
 rm -f "$WORK/bin/sudo" "$WORK/bin/id"
 
 fresh; setup --kiosk --no-start
-check "--no-start enables but starts nothing" "! grep -q 'start famhomebase' \$CTL_LOG && grep -q 'enable famhomebase.service' \$CTL_LOG && ! grep -q 'enable --now' \$CTL_LOG"
+check "--no-start enables but starts nothing" "! grep -q 'system: start famhomebase' \$CTL_LOG && grep -q 'enable famhomebase.service' \$CTL_LOG && grep -q 'enable famhomebase-kiosk.service' \$CTL_LOG"
 
 fresh; FAIL_RELOAD=1 setup; st=$?
 check "no reachable systemd is a warning, not a failure" "[ $st = 0 ] && grep -q '\"level\":\"warn\"' \$WORK/out"
-fresh; FAIL_USER=1 setup --kiosk; st=$?
-check "no reachable user systemd is a warning: the kiosk starts at the next login" "[ $st = 0 ] && grep -q 'next login' \$WORK/out"
 
 fresh; mkdir -p "$WORK/net/wlan0"; setup
 check "turns off Wi-Fi power saving on a Pi with Wi-Fi" "grep -q 'wifi.powersave = 2' $WORK/nm/wifi-powersave.conf"
@@ -126,6 +137,8 @@ check "no Wi-Fi, no file" "[ ! -e $WORK/nm/wifi-powersave.conf ]"
 
 fresh; setup > /dev/null; cp -r "$UNIT" "$WORK/system.1"; setup
 check "running it twice changes nothing" "diff -r $UNIT $WORK/system.1 > /dev/null"
+fresh; setup --kiosk > /dev/null; cp -r "$UNIT" "$WORK/system.2"; setup --kiosk
+check "with the kiosk too" "diff -r $UNIT $WORK/system.2 > /dev/null"
 fresh; setup --bogus; st=$?
 check "an unknown option is refused" "[ $st = 2 ]"
 check "its log lines are JSON" "grep -q '^{\"ts\":' \$WORK/out || grep -q '^{\"ts\":' \$WORK/err"

@@ -22,13 +22,12 @@ stub sleep ':'
 stub id 'echo 1000'
 stub curl 'echo "curl $*" >> "$LOG"; exit 0'
 stub chromium 'echo "chromium $*" >> "$LOG"'
-stub wlr-randr 'if [ $# -eq 0 ]; then echo "HDMI-A-1 \"Some Monitor\""; echo "  Modes:"; echo "DSI-1 \"Touch\""; else echo "wlr-randr $*" >> "$LOG"; fi'
+stub wlr-randr 'echo "wlr-randr $*" >> "$LOG"'
 
 run() { # extra env as args; returns the script's exit status
   : > "$LOG"
   env PATH="$BIN:$WORK/tools" HOME="$WORK/home" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY=wayland-0 LOG="$LOG" FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" "$@" /bin/sh "$T/kiosk.sh" > "$WORK/out" 2>&1
 }
-touch "$RT/wayland-0" # the desktop is up
 mkdir -p "$WORK/home"
 
 rm -f "$ENVF"; run
@@ -57,25 +56,7 @@ printf 'FAMHOMEBASE_PROFILE=/proc/nope/x\n' > "$ENVF"; run; rc=$?
 check "a profile folder that cannot be made: says so, does not open the browser" '[ $rc -ne 0 ] && grep -q "cannot make the profile folder" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
 
 printf 'FAMHOMEBASE_ROTATE=90\n' > "$ENVF"; run
-check "rotation: the first display wlr-randr lists is rotated" 'grep -q "^wlr-randr --output HDMI-A-1 --transform 90\$" "$LOG"'
-check "rotation happens before the browser opens" '[ "$(grep -n "^wlr-randr" "$LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n "^chromium" "$LOG" | head -1 | cut -d: -f1)" ]'
-printf 'FAMHOMEBASE_ROTATE=270\nFAMHOMEBASE_OUTPUT=DSI-1\n' > "$ENVF"; run
-check "rotation: FAMHOMEBASE_OUTPUT picks the display" 'grep -q "^wlr-randr --output DSI-1 --transform 270\$" "$LOG"'
-printf 'FAMHOMEBASE_ROTATE=normal\n' > "$ENVF"; run
-check "rotation: normal is a valid value (puts it back)" 'grep -q "^wlr-randr --output HDMI-A-1 --transform normal\$" "$LOG"'
-printf 'FAMHOMEBASE_ROTATE=45\n' > "$ENVF"; run
-check "rotation: an invalid value is ignored, with a message, and the display still opens" '! grep -q "^wlr-randr" "$LOG" && grep -q "ignoring FAMHOMEBASE_ROTATE" "$WORK/out" && grep -q "^chromium" "$LOG"'
-printf 'FAMHOMEBASE_ROTATE=90\n' > "$ENVF"; rm -f "$BIN/wlr-randr"; run
-check "rotation: no wlr-randr installed says so, and the display still opens" 'grep -q "wlr-randr is not installed" "$WORK/out" && grep -q "^chromium" "$LOG"'
-stub wlr-randr 'echo none >/dev/null'; run
-check "rotation: no display found says so, and the display still opens" 'grep -q "no display was found" "$WORK/out" && grep -q "^chromium" "$LOG"'
-stub wlr-randr 'if [ $# -eq 0 ]; then echo "HDMI-A-1 x"; else exit 1; fi'; run
-check "rotation: a failed rotate is reported but does not stop the display" 'grep -q "could not rotate HDMI-A-1" "$WORK/out" && grep -q "^chromium" "$LOG"'
-
-# waiting for the desktop
-rm -f "$RT/wayland-0" "$ENVF"; run; rc=$?
-check "no desktop session: gives up after a while with a clear message, so systemd can retry" '[ $rc -ne 0 ] && grep -q "no desktop session found" "$WORK/out" && ! grep -q "^chromium" "$LOG"'
-touch "$RT/wayland-0"
+check "rotation is not the kiosk's job (the app turns itself): the setting is ignored and the screen is not touched" '! grep -q "^wlr-randr" "$LOG" && grep -q "^chromium" "$LOG"'
 
 # the browser
 rm -f "$BIN/chromium"; stub chromium-browser 'echo "chromium-browser $*" >> "$LOG"'; run

@@ -21,13 +21,17 @@ in the settings file and restart `famhomebase` (and put it back afterwards).
 
 ## The Pi's screen
 
-**Nothing appears on the screen after boot**: `systemctl --user status famhomebase-kiosk`. It waits up to 5 minutes for the desktop to come up
-and then tries again. If it isn't installed, run the installer with `--kiosk`. Check desktop autologin is on
-(`sudo raspi-config nonint do_boot_behaviour B4`).
+**Nothing appears on the screen after boot**: `systemctl status famhomebase-kiosk` and `journalctl -u famhomebase-kiosk -n 50`. If it isn't
+installed, run the installer with `--kiosk`. A line `Timeout waiting session to become active` means the kiosk's terminal was not the
+one in front (the unit brings terminal 1 forward at start; a desktop left running would hold the screen: `sudo systemctl stop lightdm`).
+There is no desktop to fall back to: use SSH, or `sudo systemctl set-default graphical.target` and reboot to get one back.
+
+**The screen goes black for a moment while the kiosk restarts**: it restarts by itself if the browser exits (5 seconds), and when an
+update changes its script.
 
 **The kiosk restarts every few seconds and the log says `Zygote process exited prematurely`**: Chromium downloaded a DRM component (Widevine)
 into its saved profile and crashes on it at the next start. Releases from 0.2.0 stop it and clean it up by themselves. On an older install:
-`rm -rf /var/lib/famhomebase/kiosk-profile/WidevineCdm` and `systemctl --user restart famhomebase-kiosk`. The pairing is kept.
+`rm -rf /var/lib/famhomebase/kiosk-profile/WidevineCdm` and then `sudo systemctl restart famhomebase-kiosk`. The pairing is kept.
 
 **The screen is the wrong way up**: it is a setting of the device on the website (Devices, the device's Settings, Screen rotation). The QR
 screen of a device that has never been paired can't know its rotation, and shows unturned until it is paired.

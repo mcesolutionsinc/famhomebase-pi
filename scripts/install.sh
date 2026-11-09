@@ -17,9 +17,9 @@
 #   --env NAME       prod (default) or staging; staging shows a STAGING banner and points at the staging site
 #   --api-url URL    where the cloud is, https://host with no path (default: the site that goes with --env)
 #   --port N         the port on this machine (default 80; it must be free). The display listens on 127.0.0.1 only.
-#   --kiosk          also show the display full-screen at boot (Raspberry Pi OS desktop): turns on desktop autologin and runs the
-#                    kiosk as a systemd user service
-#   --user NAME      whose desktop the kiosk runs in (default: the user who ran sudo)
+#   --kiosk          also show the display full-screen at boot, with no desktop: installs `cage` and the browser if they are missing and
+#                    runs the kiosk as a system service of its own user (famhomebase-kiosk). The Pi then boots to the display, not to a desktop
+#   --user NAME      the user whose old desktop kiosk service (from an install before 0.4.0) is removed (default: the user who ran sudo)
 #   --no-start       set everything up, but don't start anything
 #
 # Needs Docker already installed (docs/INSTALL.md) and root (sudo). Compose is not needed: the display is one container started by systemd.
@@ -68,9 +68,6 @@ if [ -n "$API_URL" ]; then
 fi
 if [ -n "$PORT" ]; then
   echo "$PORT" | grep -Eq '^[0-9]+$' && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "'$PORT' is not a port number (1-65535)"
-fi
-if [ "$KIOSK" -eq 1 ] && { [ -z "$USER_NAME" ] || [ "$USER_NAME" = root ]; }; then
-  die "--kiosk needs the name of the desktop user: run the installer with sudo from that user's login, or add --user NAME"
 fi
 for d in "$LIB_DIR" "$DOC_DIR" "$ETC_DIR" "$STATE_DIR"; do case "$d" in ""|"/") die "an install folder is empty or the filesystem root" ;; esac; done
 
@@ -166,5 +163,5 @@ say ""
 say "Done. FamHomeBase display $WANT is installed (the command: famhomebase status)."
 say "  The display shows a QR code and a code. Scan it with a phone (or open <the site>/app/pair and type the code), sign in, name the device"
 say "  and pick a display."
-say "  The Pi's own screen:  $LOCAL_URL/?kiosk=1   (with --kiosk it opens by itself at boot). Only this machine can reach it."
+say "  The Pi's own screen:  $LOCAL_URL/?kiosk=1   (with --kiosk it is on the screen at boot, no desktop). Only this machine can reach it."
 say "  Settings: $ENV_FILE. It looks for new releases by itself every few hours; see $DOC_DIR/INSTALL.md to turn that off."
