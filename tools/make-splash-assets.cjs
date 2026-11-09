@@ -1,7 +1,8 @@
 // Draws the boot splash's pictures (assets/splash/*.png) from the FamHomeBase mark and the Sora wordmark, on a transparent background:
-//   wide.png  the logo for a landscape screen (mark left, name right)
-//   tall.png  the logo for a portrait screen (mark above, name below)
-//   dot.png   one of the three loading dots
+//   wide-R.png  the logo for a landscape screen (mark left, name right), already turned for a screen mounted turned R degrees (R is 0, 90, 180 or
+//   tall-R.png  270; the logo is turned the other way, so it reads upright on the wall). The tall one is for a portrait screen (mark above, name below).
+//               (Plymouth's own image rotation crops to the picture's old shape, so the turning is done here.)
+//   dot.png     one of the three loading dots
 // and prints the shapes (width / height of each logo), which the app's start screen uses so it draws the same logo.
 //
 //   node tools/make-splash-assets.cjs <the @expo-google-fonts/sora package folder> <output folder>
@@ -23,27 +24,43 @@ const html = `<!doctype html><meta charset="utf-8"><style>
 @font-face{font-family:SoraS;src:url("file://${path.resolve(fontDir, '600SemiBold/Sora_600SemiBold.ttf')}")}
 body{margin:0;background:transparent}
 .w{color:${INK};letter-spacing:-.01em;line-height:1;white-space:nowrap;font-family:SoraS}.l{font-family:SoraL}.b{color:${GO}}
+#dot{display:inline-block}
 #wide{display:inline-flex;align-items:center;gap:${S * 0.3}px;padding:8px}#wide svg{width:${S}px;height:${S}px}#wide .w{font-size:${S * 0.72}px}
 #tall{display:inline-flex;flex-direction:column;align-items:center;gap:${S * 0.22}px;padding:8px}#tall svg{width:${S * 1.5}px;height:${S * 1.5}px}#tall .w{font-size:${S * 0.62}px}
 #dot{display:inline-block;width:${S * 0.2}px;height:${S * 0.2}px;border-radius:50%;background:${GO};margin:8px}
-</style><div id="wide">${mark}${word}</div><br><div id="tall">${mark}${word}</div><br><div id="dot"></div>`;
+</style><div id="stage" style="position:absolute;left:600px;top:400px"></div><div id="wide" class="logo">${mark}${word}</div><div id="tall" class="logo">${mark}${word}</div><div id="dot"></div>`;
 
 (async () => {
   fs.mkdirSync(outDir, { recursive: true });
   const tmp = path.join(outDir, '.splash-source.html');
   fs.writeFileSync(tmp, html);
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 2400, height: 1600 } });
+  const page = await browser.newPage({ viewport: { width: 2400, height: 2400 } });
   await page.goto('file://' + tmp);
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(300);
   const shapes = {};
-  for (const id of ['wide', 'tall', 'dot']) {
-    const el = page.locator('#' + id);
-    await el.screenshot({ path: path.join(outDir, id + '.png'), omitBackground: true });
-    const box = await el.boundingBox();
-    shapes[id] = { width: Math.round(box.width), height: Math.round(box.height) };
+  for (const id of ['wide', 'tall']) {
+    for (const rot of [0, 90, 180, 270]) {
+      // the element, turned clockwise by (360 - rot) degrees about its centre, in the middle of a big empty page
+      const box = await page.evaluate(([elementId, turn]) => {
+        const el = document.getElementById(elementId);
+        const wrap = document.getElementById('stage');
+        document.querySelectorAll('.logo').forEach((e) => (e.style.display = 'none'));
+        el.style.display = elementId === 'wide' ? 'inline-flex' : 'inline-flex';
+        wrap.appendChild(el);
+        el.style.transform = `rotate(${turn}deg)`;
+        const r = el.getBoundingClientRect();
+        return { x: Math.floor(r.x), y: Math.floor(r.y), width: Math.ceil(r.width), height: Math.ceil(r.height) };
+      }, [id, (360 - rot) % 360]);
+      await page.screenshot({ path: path.join(outDir, `${id}-${rot}.png`), clip: box, omitBackground: true });
+      shapes[`${id}-${rot}`] = { width: box.width, height: box.height };
+    }
   }
+  const dot = page.locator('#dot');
+  await dot.screenshot({ path: path.join(outDir, 'dot.png'), omitBackground: true });
+  const d = await dot.boundingBox();
+  shapes.dot = { width: Math.round(d.width), height: Math.round(d.height) };
   await browser.close();
   fs.unlinkSync(tmp);
   console.log(JSON.stringify(shapes));

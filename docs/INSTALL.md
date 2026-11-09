@@ -97,6 +97,9 @@ rotation (Devices, then the device's Settings).
   the unit `famhomebase-splash.path` then makes the theme again and rebuilds the boot image (about half a minute, once for each change). A
   display that has never been paired, or whose rotation you have just changed, shows the splash turned for the old rotation until the next
   boot after that.
+  The splash stays until the page is being served (`famhomebase-ready.service` runs `ready.sh`, which waits for it, at most 90 seconds, and
+  plymouth is told to wait for that service), so the screen is not left blank while the container starts. The mouse pointer is invisible: the
+  kiosk uses a cursor theme with one transparent picture (`/usr/local/lib/famhomebase/cursors`).
 - **The updater**: the `famhomebase-update` timer runs `update.sh` every few hours (section 7).
 
 Everything in `/usr/local` is root's, so nothing that runs as root lives in a user's folder.

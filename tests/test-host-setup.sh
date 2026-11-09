@@ -52,6 +52,7 @@ fresh() {
   rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin"; : > "$CTL_LOG"
   mkdir -p "$WORK/inst" "$WORK/home" "$WORK/nm" "$WORK/etc"
   cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; printf '#!/bin/sh\necho "splash $*" >> "%s"\n[ -z "${FAIL_SPLASH:-}" ]\n' "$CTL_LOG" > "$WORK/inst/splash.sh"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
+  mkdir -p "$WORK/inst/cursors/famhomebase-blank/cursors"; echo cursor > "$WORK/inst/cursors/famhomebase-blank/cursors/left_ptr"
   unset FAIL_SPLASH FAIL_RELOAD ACTIVE DESKTOP_UP DEFAULT_TARGET FAIL_APT FAIL_USERADD
 }
 setup() { sh "$WORK/inst/host-setup.sh" "$@" > "$WORK/out" 2> "$WORK/err"; }
@@ -61,6 +62,7 @@ OLD="$WORK/home/.config/systemd/user/famhomebase-kiosk.service"
 fresh; setup; st=$?
 check "writes the display unit: runs run.sh, restarts always, after docker" "[ $st = 0 ] && grep -Fxq 'ExecStart=/bin/sh \"$INST/run.sh\"' $UNIT/famhomebase.service && grep -q '^Restart=always' $UNIT/famhomebase.service && grep -q '^After=docker.service' $UNIT/famhomebase.service"
 check "the folder is quoted in the unit, so a path with odd characters still starts" "grep -q 'ExecStart=/bin/sh \"' $UNIT/famhomebase.service"
+check "the display unit does not wait for the network (the container needs none; the page copes with a late connection), so the screen is not held up" "! grep -q 'network-online' $UNIT/famhomebase.service"
 check "the display unit removes the container when it stops" "grep -q 'ExecStopPost=.*docker rm -f famhomebase-display' $UNIT/famhomebase.service"
 check "writes the update service and a timer every 6 hours by default" "grep -Fxq 'ExecStart=/bin/sh \"$INST/update.sh\"' $UNIT/famhomebase-update.service && grep -q '^OnUnitActiveSec=6h' $UNIT/famhomebase-update.timer"
 check "enables and starts the display and the timer" "grep -q 'enable famhomebase.service famhomebase-update.timer' \$CTL_LOG && grep -q 'system: start famhomebase.service' \$CTL_LOG && ! grep -q 'system: restart famhomebase.service' \$CTL_LOG && grep -q 'start famhomebase-update.timer' \$CTL_LOG"
@@ -109,6 +111,9 @@ fresh; setup --kiosk; sed -i 's/^PathChanged=.*/PathChanged=\/old/' "$UNIT/famho
 check "a splash unit that changed is restarted, so the running watch follows it" "grep -q 'system: restart famhomebase-splash.path' \$CTL_LOG"
 fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
 check "and one that did not change is only started (it already runs)" "! grep -q 'restart famhomebase-splash.path' \$CTL_LOG"
+fresh; setup --kiosk
+check "the splash waits for the page: a ready unit runs ready.sh, and plymouth is ordered after it, and the kiosk too" "grep -Fxq 'ExecStart=/bin/sh \"$INST/ready.sh\"' $UNIT/famhomebase-ready.service && grep -q '^After=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^Wants=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^After=.*famhomebase-ready.service' $KU && grep -q 'enable .*famhomebase-ready.service' \$CTL_LOG"
+check "the kiosk gets an invisible pointer: the cursor theme is in its environment, and the theme has a picture under the usual names" "grep -Fxq 'Environment=XCURSOR_PATH=$INST/cursors XCURSOR_THEME=famhomebase-blank XCURSOR_SIZE=24' $KU && [ -e $INST/cursors/famhomebase-blank/cursors/default ] && [ -e $INST/cursors/famhomebase-blank/cursors/text ] && [ \"\$(readlink $INST/cursors/famhomebase-blank/cursors/watch)\" = left_ptr ]"
 fresh; setup
 check "no splash without --kiosk" "! grep -q '^splash' \$CTL_LOG && [ ! -e $UNIT/famhomebase-splash.path ]"
 fresh; FAIL_SPLASH=1 setup --kiosk; st=$?

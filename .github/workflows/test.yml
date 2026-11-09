@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint the shell scripts and their tests
-        run: shellcheck -s sh -S warning scripts/install.sh scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/famhomebase scripts/splash.sh tests/test-*.sh
+        run: shellcheck -s sh -S warning scripts/install.sh scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/famhomebase scripts/splash.sh scripts/ready.sh tests/test-*.sh
       - name: Test the container's start script
         run: sh tests/test-run.sh
       - name: Test the host setup
@@ -26,3 +26,5 @@ jobs:
         run: sh tests/test-famhomebase.sh
       - name: Test the boot splash
         run: sh tests/test-splash.sh
+      - name: Test the ready wait
+        run: sh tests/test-ready.sh

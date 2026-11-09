@@ -104,8 +104,7 @@ write_unit "$SYSTEMD_DIR/famhomebase.service" <<UNIT_EOF
 [Unit]
 Description=FamHomeBase display (container)
 Requires=docker.service
-After=docker.service network-online.target
-Wants=network-online.target
+After=docker.service
 
 [Service]
 ExecStart=/bin/sh "$LIB/run.sh"
@@ -205,7 +204,7 @@ if [ "$kiosk" -eq 1 ]; then
   write_unit "$kiosk_unit" <<UNIT_EOF
 [Unit]
 Description=FamHomeBase kiosk display (cage, then the browser)
-After=systemd-user-sessions.service famhomebase.service getty@tty1.service plymouth-quit.service plymouth-quit-wait.service
+After=systemd-user-sessions.service famhomebase.service famhomebase-ready.service getty@tty1.service plymouth-quit.service plymouth-quit-wait.service
 Wants=famhomebase.service
 Conflicts=getty@tty1.service
 
@@ -221,6 +220,8 @@ StandardOutput=journal
 StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
+# an invisible pointer (the screen is not touched or pointed at): cage and the browser both read the cursor theme from here
+Environment=XCURSOR_PATH=$LIB/cursors XCURSOR_THEME=famhomebase-blank XCURSOR_SIZE=24
 # the screen is only usable by a session on the terminal that is in front: bring terminal 1 forward (a desktop may have left 7 there)
 ExecStartPre=-+/usr/bin/chvt 1
 ExecStart=/usr/bin/cage -- "$LIB/kiosk.sh"
@@ -231,6 +232,12 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT_EOF
   [ "$before" != "$(cksum < "$kiosk_unit" 2>/dev/null || true)" ] && kiosk_changed=1
+
+  # the pointer's invisible cursor theme: one transparent picture under every name a program may ask for
+  cursors="$LIB/cursors/famhomebase-blank/cursors"
+  if [ -f "$cursors/left_ptr" ]; then
+    for name in default arrow pointer text xterm hand hand1 hand2 grab grabbing crosshair watch wait progress move help not-allowed; do ln -sf left_ptr "$cursors/$name" 2>/dev/null; done
+  fi
 
   # the boot splash (logo and moving dots, turned for how the screen is mounted): the packages, the quiet boot settings and the theme, and
   # a unit that makes the theme again when the page tells the host a new rotation
@@ -255,8 +262,27 @@ Unit=famhomebase-splash.service
 [Install]
 WantedBy=multi-user.target
 UNIT_EOF
-    # keep the last picture on the screen when plymouth leaves (the kiosk starts right after), instead of blanking it
+    # plymouth (the splash) leaves only when the page is being served, so the splash covers the wait instead of a blank screen, and then keeps
+    # its last picture on the screen when it leaves (the kiosk starts right after) instead of blanking it
+    write_unit "$SYSTEMD_DIR/famhomebase-ready.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase: wait until the display's page is being served
+After=famhomebase.service
+Wants=famhomebase.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh "$LIB/ready.sh"
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
     write_unit "$SYSTEMD_DIR/plymouth-quit.service.d/famhomebase.conf" <<UNIT_EOF
+[Unit]
+After=famhomebase-ready.service
+Wants=famhomebase-ready.service
+
 [Service]
 ExecStart=
 ExecStart=-/usr/bin/plymouth quit --retain-splash
@@ -270,7 +296,7 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
   "$SYSTEMCTL" enable famhomebase.service famhomebase-update.timer >/dev/null 2>&1
   if [ "$kiosk" -eq 1 ]; then
     "$SYSTEMCTL" enable famhomebase-kiosk.service >/dev/null 2>&1
-    [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ] && "$SYSTEMCTL" enable famhomebase-splash.path >/dev/null 2>&1
+    [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ] && "$SYSTEMCTL" enable famhomebase-splash.path famhomebase-ready.service >/dev/null 2>&1
     # no desktop: boot to the text target, so no login manager starts and takes the screen
     [ "$("$SYSTEMCTL" get-default 2>/dev/null)" = graphical.target ] && "$SYSTEMCTL" set-default multi-user.target >/dev/null 2>&1
   fi

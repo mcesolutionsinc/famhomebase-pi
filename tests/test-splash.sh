@@ -32,7 +32,7 @@ fresh() {
   rm -rf "${WORK:?}/inst" "${WORK:?}/state" "${WORK:?}/themes" "${WORK:?}/boot" "$WORK/current-theme"; : > "$LOG"
   mkdir -p "$WORK/inst/splash" "$WORK/boot"
   cp "$SCRIPT" "$WORK/inst/"
-  for f in wide tall dot; do cp "$HERE/../assets/splash/$f.png" "$WORK/inst/splash/"; done
+  cp "$HERE"/../assets/splash/*.png "$WORK/inst/splash/"
   printf 'console=serial0,115200 console=tty1 root=PARTUUID=x rootwait quiet splash plymouth.ignore-serial-consoles ds=nocloud;i=rpi-imager-1 cfg80211.ieee80211_regdom=CA\n' > "$WORK/boot/cmdline.txt"
   printf 'dtparam=audio=on\n[all]\n' > "$WORK/boot/config.txt"
   mkdir -p "$WORK/state/state"
@@ -43,6 +43,11 @@ setrot() { printf '%s' "$1" > "$WORK/state/state/rotation"; }
 
 fresh; splash apply; st=$?
 check "apply with no rotation file: the theme for 0 degrees, its pictures, and a rebuild of the boot image" "[ $st = 0 ] && grep -q '^rotation = 0;' $T/famhomebase.script && [ -f $T/wide.png ] && [ -f $T/tall.png ] && [ -f $T/dot.png ] && grep -q '^rebuild famhomebase' \$LOG"
+check "the theme's pictures are the ones turned for this rotation, under the names the script uses" "cmp -s $T/wide.png $WORK/inst/splash/wide-0.png && cmp -s $T/tall.png $WORK/inst/splash/tall-0.png"
+fresh; setrot 270; splash apply
+check "for 270 degrees: the pictures turned for 270" "cmp -s $T/wide.png $WORK/inst/splash/wide-270.png && cmp -s $T/tall.png $WORK/inst/splash/tall-270.png && ! cmp -s $T/tall.png $WORK/inst/splash/tall-0.png"
+check "the script does not use Plymouth's own image rotation (it crops the picture to its old shape)" "! grep -q 'Rotate' $T/famhomebase.script"
+fresh; splash apply
 check "the theme file names the script module and its folder" "grep -q '^ModuleName=script' $T/famhomebase.plymouth && grep -q '^ImageDir=$T\$' $T/famhomebase.plymouth && grep -q '^ScriptFile=$T/famhomebase.script\$' $T/famhomebase.plymouth"
 check "the script has the logo shapes, the dots and the wave of the app's start screen (the same numbers as bootGeometry.ts)" "grep -q 'fraction = 0.55' $T/famhomebase.script && grep -q 'fraction = 0.7' $T/famhomebase.script && grep -q 'dot_d = logo_w \\* 0.03' $T/famhomebase.script && grep -q 'logo_w \\* 0.1' $T/famhomebase.script && grep -q 'i \\* 0.2' $T/famhomebase.script && grep -q 'frame >= 60' $T/famhomebase.script && grep -q 'SetBackgroundTopColor(0.039, 0.075, 0.153)' $T/famhomebase.script"
 check "its log line is JSON" "grep -q '^{\"ts\":\".*\"component\":\"splash\"' \$WORK/out"
@@ -68,7 +73,7 @@ fresh; splash apply; echo text > "$WORK/current-theme"; : > "$LOG"; splash apply
 check "if the default theme was changed to another, it is put back (even though the files are unchanged)" "grep -q '^rebuild famhomebase' \$LOG"
 fresh; FAIL_REBUILD=1 splash apply; st=$?
 check "a rebuild that fails is a warning that says what to run, not a failure" "[ $st = 0 ] && grep -q 'plymouth-set-default-theme -R famhomebase' \$WORK/out"
-fresh; rm -f "$WORK/inst/splash/dot.png"; splash apply; st=$?
+fresh; rm -f "$WORK/inst/splash/tall-0.png"; splash apply; st=$?
 check "missing pictures: an error, and nothing is installed or rebuilt" "[ $st != 0 ] && [ ! -d $T ] && ! grep -q rebuild \$LOG && grep -q '\"level\":\"error\"' \$WORK/out"
 
 # install

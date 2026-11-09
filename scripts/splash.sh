@@ -54,17 +54,21 @@ ph = Window.GetHeight();
 quarter = (rotation == 90 || rotation == 270);
 if (quarter) { lw = ph; lh = pw; } else { lw = pw; lh = ph; }
 
+# the pictures are already turned for this rotation (splash.sh copies the right ones in), so a quarter turn has them lying on their side:
+# the upright shape is the other way round
 if (lw >= lh) { logo = Image("wide.png"); fraction = 0.55; }
 else { logo = Image("tall.png"); fraction = 0.7; }
+if (quarter) { upright_w = logo.GetHeight(); upright_h = logo.GetWidth(); }
+else { upright_w = logo.GetWidth(); upright_h = logo.GetHeight(); }
 
 logo_w = lw * fraction;
-logo_h = logo.GetHeight() * logo_w / logo.GetWidth();
+logo_h = upright_h * logo_w / upright_w;
 dot_d = logo_w * 0.03;
 dots_offset = logo_h + logo_w * 0.1;
 group_h = dots_offset + dot_d;
 group_top = (lh - group_h) / 2;
 
-# turned the opposite way to how the screen is mounted, so it reads upright on the wall
+# turning the positions the same way the pictures were turned: opposite to how the screen is mounted, so it reads upright on the wall
 angle = (360 - rotation) * 3.14159265 / 180;
 cs = Math.Cos(angle);
 sn = Math.Sin(angle);
@@ -76,12 +80,12 @@ fun place(sprite, image, ox, oy) {
   sprite.SetPosition(pw / 2 + px - image.GetWidth() / 2, ph / 2 + py - image.GetHeight() / 2, 10);
 }
 
-logo_img = logo.Scale(logo_w, logo_h).Rotate(angle);
+if (quarter) { logo_img = logo.Scale(logo_h, logo_w); }
+else { logo_img = logo.Scale(logo_w, logo_h); }
 logo_sprite = Sprite(logo_img);
 place(logo_sprite, logo_img, 0, group_top + logo_h / 2 - lh / 2);
 
-dot_img = Image("dot.png").Scale(dot_d, dot_d);
-dot_turned = dot_img.Rotate(angle);
+dot_turned = Image("dot.png").Scale(dot_d, dot_d);
 for (i = 0; i < 3; i++) {
   dots[i] = Sprite(dot_turned);
   place(dots[i], dot_turned, (i - 1) * 2 * dot_d, group_top + dots_offset + dot_d / 2 - lh / 2);
@@ -119,7 +123,8 @@ ImageDir=$THEME_DIR
 ScriptFile=$THEME_DIR/$THEME.script
 PLY_EOF
   write_script "$1" > "$2/$THEME.script"
-  cp "$LIB/splash/wide.png" "$LIB/splash/tall.png" "$LIB/splash/dot.png" "$2/"
+  # the pictures turned for this rotation (see tools/make-splash-assets.cjs), under the names the script uses
+  cp "$LIB/splash/wide-$1.png" "$2/wide.png" && cp "$LIB/splash/tall-$1.png" "$2/tall.png" && cp "$LIB/splash/dot.png" "$2/dot.png"
 }
 
 apply() {
