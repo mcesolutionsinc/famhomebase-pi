@@ -36,9 +36,12 @@ runner "--version 0.5.6 --base-image $WORK/missing.img.xz"; st=$?
 check "a base image that does not exist is refused" "[ $st != 0 ] && grep -q 'existing .img.xz' $WORK/out"
 UN="$WORK/uname-x86" runner "--version 0.5.6"; st=$?
 check "a machine that is not 64-bit ARM is refused, with what to do" "[ $st != 0 ] && grep -q '64-bit ARM' $WORK/out"
-rm "$WORK/bin/docker"; runner "--version 0.5.6"; st=$?
+# a PATH of only the system tools the script uses plus the stubs, so a docker that happens to be installed on this machine can't leak in
+mkdir -p "$WORK/tools"; for t in sed grep id date uname cut tr; do ln -s "$(command -v $t)" "$WORK/tools/$t"; done
+mv "$WORK/bin/docker" "$WORK/docker.off"
+st=0; PATH="$WORK/bin:$WORK/tools" FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_UNAME="$WORK/uname-arm" FAMHOMEBASE_DRY_RUN=1 /bin/sh "$SCRIPT" --version 0.5.6 > "$WORK/out" 2>&1 || st=$?
 check "a missing tool is named" "[ $st != 0 ] && grep -q 'docker is required' $WORK/out"
-printf '#!/bin/sh\n' > "$WORK/bin/docker"; chmod +x "$WORK/bin/docker"
+mv "$WORK/docker.off" "$WORK/bin/docker"
 st=0; PATH="$WORK/bin:$PATH" FAMHOMEBASE_UNAME="$WORK/uname-arm" FAMHOMEBASE_DRY_RUN=1 sh "$SCRIPT" --version 0.5.6 > "$WORK/out" 2>&1 || st=$?
 if [ "$(id -u)" -ne 0 ]; then check "without root it refuses, and says to use sudo" "[ $st != 0 ] && grep -q 'needs root' $WORK/out"; else ok "(running as root: the root check is skipped)"; fi
 sh "$SCRIPT" --help > "$WORK/out" 2>&1
