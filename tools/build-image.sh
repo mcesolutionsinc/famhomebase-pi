@@ -111,6 +111,28 @@ if [ -n "$TEST_KEY" ]; then
   mkdir -p "$ROOT/home/famhomebase/.ssh"; cp "$TEST_KEY" "$ROOT/home/famhomebase/.ssh/authorized_keys"
   chroot "$ROOT" /bin/sh -c "chown -R famhomebase:famhomebase /home/famhomebase/.ssh && chmod 700 /home/famhomebase/.ssh && chmod 600 /home/famhomebase/.ssh/authorized_keys && systemctl enable ssh.service" || die "could not set up SSH for the test user"
   printf 'famhomebase ALL=(ALL) NOPASSWD:ALL\n' > "$ROOT/etc/sudoers.d/90-famhomebase-test"; chmod 440 "$ROOT/etc/sudoers.d/90-famhomebase-test"
+  # a report on the card's boot drive (readable on any computer, no network needed), written 90 s and 240 s after boot: what cloud-init did,
+  # whether SSH is up and why not, what is listening, what failed. For finding out why a test card cannot be reached.
+  cat > "$ROOT/usr/local/lib/famhomebase/test-report.sh" <<'REPORT_EOF'
+#!/bin/sh
+OUT=/boot/firmware/famhomebase-test-report.txt
+for wait in 90 150; do
+  sleep "$wait"
+  {
+    echo "== $(date -u +%FT%TZ) up $(cut -d' ' -f1 /proc/uptime)s host $(hostname)"; ip -br a; echo
+    echo "== cloud-init"; cloud-init status --long 2>&1; echo
+    echo "== failed units"; systemctl --failed --no-pager 2>&1; echo
+    echo "== active"; systemctl is-active ssh.service ssh.socket sshd-keygen.service userconfig.service cloud-final.service docker famhomebase famhomebase-kiosk famhomebase-image-load 2>&1 | paste -sd' '; echo
+    echo "== listening"; ss -ltn 2>&1; echo
+    echo "== ssh journal"; journalctl -b -u ssh -u ssh.socket -u sshd-keygen --no-pager 2>&1 | tail -30; echo
+    echo "== cloud-init warnings and errors"; grep -iE "warn|error|fail|invalid|schema" /var/log/cloud-init.log 2>&1 | tail -30; echo
+    echo "== boot drive files"; ls -la /boot/firmware | grep -iE "user-data|meta-data|network|ssh|famhomebase"; echo
+    echo "== display"; famhomebase status 2>&1 | head -8
+  } > "$OUT.new" 2>&1 && mv "$OUT.new" "$OUT"
+done
+REPORT_EOF
+  printf '[Unit]\nDescription=FamHomeBase test image: write a report on the boot drive\n\n[Service]\nType=simple\nExecStart=/bin/sh /usr/local/lib/famhomebase/test-report.sh\n\n[Install]\nWantedBy=multi-user.target\n' > "$ROOT/etc/systemd/system/famhomebase-test-report.service"
+  chroot "$ROOT" /bin/sh -c "systemctl enable famhomebase-test-report.service" || die "could not enable the test report"
 fi
 [ -z "$HOSTNAME_WANT" ] || { echo "$HOSTNAME_WANT" > "$ROOT/etc/hostname"; sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME_WANT/" "$ROOT/etc/hosts"; }
 
