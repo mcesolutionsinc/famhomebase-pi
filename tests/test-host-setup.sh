@@ -45,7 +45,7 @@ MINPATH="$WORK/bin:$WORK/min"
 mkdir -p "$WORK/tools"; printf '#!/bin/sh\n' > "$WORK/tools/cage"; printf '#!/bin/sh\n' > "$WORK/tools/chromium"; chmod +x "$WORK/tools/"*
 export PATH="$WORK/bin:$WORK/tools:$PATH" CTL_LOG="$WORK/ctl.log"
 export FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
-export FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_SYSTEMD_DIR="$WORK/system" FAMHOMEBASE_USER_HOME="$WORK/home" FAMHOMEBASE_NM_CONF_DIR="$WORK/nm" FAMHOMEBASE_NET_DIR="$WORK/net"
+export FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_SYSTEMD_DIR="$WORK/system" FAMHOMEBASE_USER_HOME="$WORK/home" FAMHOMEBASE_NM_CONF_DIR="$WORK/nm" FAMHOMEBASE_NET_DIR="$WORK/net" FAMHOMEBASE_CHROMIUM_POLICY_DIR="$WORK/policy"
 export FAMHOMEBASE_HOMES="$WORK/home" SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser" APT_GET="$WORK/bin/apt-get" USERADD="$WORK/bin/useradd" USERMOD="$WORK/bin/usermod" CHOWN="$WORK/bin/chown"
 
 fresh() {
@@ -113,6 +113,8 @@ fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
 check "and one that did not change is only started (it already runs)" "! grep -q 'restart famhomebase-splash.path' \$CTL_LOG"
 fresh; setup --kiosk
 check "cloud-init's console output stays in the journal, so no text shows on the screen after the splash" "for s in cloud-init-local cloud-init-network cloud-config cloud-final; do grep -q '^StandardOutput=journal\$' $UNIT/\$s.service.d/famhomebase-quiet.conf || exit 1; done"
+check "the browser's window gets the page's dark colour by policy, so it does not flash white" "grep -q '\"BrowserThemeColor\": \"#0A1327\"' $WORK/policy/famhomebase.json"
+check "the terminal's text cursor is switched off before the screen is handed to cage" "grep -q '^ExecStartPre=.*/dev/tty1' $KU"
 check "the splash waits for the page: a ready unit runs ready.sh, and plymouth is ordered after it, and the kiosk too" "grep -Fxq 'ExecStart=/bin/sh \"$INST/ready.sh\"' $UNIT/famhomebase-ready.service && grep -q '^After=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^Wants=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^After=.*famhomebase-ready.service' $KU && grep -q 'enable .*famhomebase-ready.service' \$CTL_LOG"
 check "the kiosk gets an invisible pointer: the cursor theme is in its environment, and the theme has a picture under the usual names" "grep -Fxq 'Environment=XCURSOR_PATH=$INST/cursors XCURSOR_THEME=famhomebase-blank XCURSOR_SIZE=24' $KU && [ -e $INST/cursors/famhomebase-blank/cursors/default ] && [ -e $INST/cursors/famhomebase-blank/cursors/text ] && [ \"\$(readlink $INST/cursors/famhomebase-blank/cursors/watch)\" = left_ptr ]"
 fresh; setup

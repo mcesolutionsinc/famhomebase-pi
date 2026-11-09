@@ -32,6 +32,7 @@ CHOWN=${CHOWN:-chown}
 SYSTEMD_DIR=${FAMHOMEBASE_SYSTEMD_DIR:-/etc/systemd/system}
 NM_DIR=${FAMHOMEBASE_NM_CONF_DIR:-/etc/NetworkManager/conf.d} # (the tests point these at a scratch folder)
 NET_DIR=${FAMHOMEBASE_NET_DIR:-/sys/class/net}
+POLICY_DIR=${FAMHOMEBASE_CHROMIUM_POLICY_DIR:-/etc/chromium/policies/managed}
 KIOSK_USER=famhomebase-kiosk
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"host-setup","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(printf '%s' "$2" | tr '"\\' "'/")"; }
@@ -224,6 +225,8 @@ UtmpMode=user
 Environment=XCURSOR_PATH=$LIB/cursors XCURSOR_THEME=famhomebase-blank XCURSOR_SIZE=24
 # the screen is only usable by a session on the terminal that is in front: bring terminal 1 forward (a desktop may have left 7 there)
 ExecStartPre=-+/usr/bin/chvt 1
+# the text cursor of that terminal shows on the black screen between the splash and the browser: switch it off
+ExecStartPre=-+/bin/sh -c 'printf "\\033[?25l\\033[?1c" > /dev/tty1'
 ExecStart=/usr/bin/cage -- "$LIB/kiosk.sh"
 Restart=always
 RestartSec=5
@@ -238,6 +241,11 @@ UNIT_EOF
   if [ -f "$cursors/left_ptr" ]; then
     for name in default arrow pointer text xterm hand hand1 hand2 grab grabbing crosshair watch wait progress move help not-allowed; do ln -sf left_ptr "$cursors/$name" 2>/dev/null; done
   fi
+
+  # the browser's own window is drawn white or grey for a moment before the page paints: a browser policy gives that window the page's
+  # dark colour. Debian's Chromium reads every file in this folder, and the policy changes nothing else about it.
+  mkdir -p "$POLICY_DIR" 2>/dev/null
+  printf '{ "BrowserThemeColor": "#0A1327" }\n' > "$POLICY_DIR/famhomebase.json" 2>/dev/null || jlog warn "could not write the browser's colour policy"
 
   # the boot splash (logo and moving dots, turned for how the screen is mounted): the packages, the quiet boot settings and the theme, and
   # a unit that makes the theme again when the page tells the host a new rotation
