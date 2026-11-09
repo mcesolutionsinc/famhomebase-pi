@@ -94,6 +94,9 @@ mount -t proc proc "$ROOT/proc"; mount -t sysfs sysfs "$ROOT/sys"
 cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
 printf '#!/bin/sh\nexit 101\n' > "$ROOT/usr/sbin/policy-rc.d"; chmod +x "$ROOT/usr/sbin/policy-rc.d"
 
+# a build machine on Wi-Fi drops now and then: apt retries patiently (removed again at the end, so the image keeps the base system's settings)
+printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' > "$ROOT/etc/apt/apt.conf.d/99famhomebase-build"
+
 jlog info "installing Docker and the display $VERSION ($ENVNAME) into the image"
 curl -fsSL -o "$ROOT/tmp/install.sh" "$DL/$REPO/releases/download/v$VERSION/install.sh" || die "could not download install.sh of release $VERSION"
 chroot "$ROOT" /bin/sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update -q && apt-get install -y -q --no-install-recommends curl ca-certificates docker.io docker-cli && systemctl enable docker.service" || die "could not install Docker in the image"
@@ -119,7 +122,7 @@ docker save "$IMAGE_NAME:$VERSION" | gzip -1 > "$ROOT/var/lib/famhomebase/image.
 
 # tidy: nothing of the build stays in the image
 chroot "$ROOT" /bin/sh -c "apt-get clean && rm -rf /var/lib/apt/lists/* /var/log/apt/* /tmp/* ; : > /etc/machine-id" || true
-rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/etc/resolv.conf"
+rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/etc/resolv.conf" "$ROOT/etc/apt/apt.conf.d/99famhomebase-build"
 [ -e "$ROOT/etc/resolv.conf.orig" ] || [ -L "$ROOT/etc/resolv.conf.orig" ] && mv "$ROOT/etc/resolv.conf.orig" "$ROOT/etc/resolv.conf"
 sync
 cleanup_mounts() { for m in dev/pts dev proc sys boot/firmware ""; do umount "$ROOT${m:+/$m}" || umount -l "$ROOT${m:+/$m}"; done; }
