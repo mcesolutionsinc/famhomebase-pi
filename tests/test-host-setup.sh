@@ -37,6 +37,11 @@ printf '#!/bin/sh\necho "pkill $*" >> "$CTL_LOG"\n' > "$WORK/bin/pkill"
 printf '#!/bin/sh\n[ "$1" = group ] && exit 0\nexec /usr/bin/getent "$@"\n' > "$WORK/bin/getent"
 chmod +x "$WORK/bin/"*
 # the tools the kiosk needs, as far as `command -v` can tell: cage and chromium are "installed" unless a test removes them
+# a PATH with only the system tools the script uses (and the stubs), for the tests where cage and the browser must be missing: a
+# machine that has a browser installed (a CI runner does) must not leak in
+mkdir -p "$WORK/min"
+for t in sh id sed tail head tr cat cmp mkdir rm mv ln cksum date stat grep cut dirname readlink env tee basename; do ln -sf "$(command -v $t)" "$WORK/min/$t" 2>/dev/null; done
+MINPATH="$WORK/bin:$WORK/min"
 mkdir -p "$WORK/tools"; printf '#!/bin/sh\n' > "$WORK/tools/cage"; printf '#!/bin/sh\n' > "$WORK/tools/chromium"; chmod +x "$WORK/tools/"*
 export PATH="$WORK/bin:$WORK/tools:$PATH" CTL_LOG="$WORK/ctl.log"
 export FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
@@ -80,9 +85,9 @@ fresh; DEFAULT_TARGET=multi-user.target setup --kiosk
 check "a Pi already booting to the text target is not changed" "! grep -q 'set-default' \$CTL_LOG"
 fresh; DESKTOP_UP=1 setup --kiosk
 check "a desktop that is running is stopped before the kiosk starts, so it does not hold the screen" "grep -n 'stop display-manager' \$CTL_LOG | head -1 | cut -d: -f1 | grep -q . && [ \"\$(grep -n 'stop display-manager' \$CTL_LOG | head -1 | cut -d: -f1)\" -lt \"\$(grep -n 'start famhomebase-kiosk' \$CTL_LOG | head -1 | cut -d: -f1)\" ]"
-fresh; mkdir -p "$WORK/tools2"; PATH="$WORK/bin:/usr/bin:/bin" setup --kiosk
+fresh; mkdir -p "$WORK/tools2"; PATH="$MINPATH" setup --kiosk
 check "cage and the browser missing: installed with apt, then the kiosk is set up" "grep -q '^apt-get install -y -q cage' \$CTL_LOG && grep -q '^apt-get install -y -q chromium' \$CTL_LOG && [ -f $KU ]"
-fresh; FAIL_APT=1 PATH="$WORK/bin:/usr/bin:/bin" setup --kiosk; st=$?
+fresh; FAIL_APT=1 PATH="$MINPATH" setup --kiosk; st=$?
 check "a package that cannot be installed is a warning that says what to do, not a failure" "[ $st = 0 ] && grep -q 'could not install cage' \$WORK/out"
 fresh; FAIL_USERADD=1 setup --kiosk; st=$?
 check "a user that cannot be made is a warning" "[ $st = 0 ] && grep -q 'could not make the user famhomebase-kiosk' \$WORK/out"
@@ -100,7 +105,7 @@ printf '#!/bin/sh\ncase "$*" in "-nG famhomebase-kiosk") echo famhomebase-kiosk 
 fresh; setup --kiosk
 check "a service user that already exists is not made again, and is given the groups it lacks" "! grep -q '^useradd' \$CTL_LOG && grep -q '^usermod -aG video famhomebase-kiosk' \$CTL_LOG && grep -q '^usermod -aG input famhomebase-kiosk' \$CTL_LOG"
 rm -f "$WORK/bin/id"
-fresh; PATH="$WORK/bin:/usr/bin:/bin" setup --kiosk
+fresh; PATH="$MINPATH" setup --kiosk
 check "missing packages: the package lists are refreshed first (a freshly flashed card has none), then it installs" "[ \"\$(grep -n '^apt-get update' \$CTL_LOG | head -1 | cut -d: -f1)\" -lt \"\$(grep -n '^apt-get install' \$CTL_LOG | head -1 | cut -d: -f1)\" ]"
 fresh; mkdir -p "$(dirname "$OLD")" "$STATE"; printf '[Service]\nExecStart=x\n' > "$OLD"; setup --kiosk --user tester
 check "the old kiosk is stopped before the profile is handed to the new user, and its process is ended if systemd cannot stop it" "[ \"\$(grep -n 'user: systemctl --user disable --now famhomebase-kiosk' \$CTL_LOG | head -1 | cut -d: -f1)\" -lt \"\$(grep -n '^chown -R' \$CTL_LOG | head -1 | cut -d: -f1)\" ] && grep -q '^pkill -u' \$CTL_LOG"
