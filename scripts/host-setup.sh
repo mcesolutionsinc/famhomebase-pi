@@ -118,6 +118,26 @@ TimeoutStopSec=30
 WantedBy=multi-user.target
 UNIT_EOF
 
+# First boot of a ready-made system image: the display's Docker image is saved inside it; load it before the display starts (load-image.sh).
+# Skipped by its condition on every machine that has no such file.
+if [ -f "$LIB/load-image.sh" ]; then
+  write_unit "$SYSTEMD_DIR/famhomebase-image-load.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase: load the display image that came with this system image
+ConditionPathExists=$STATE_DIR/image.tar.gz
+Requires=docker.service
+After=docker.service
+Before=famhomebase.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh "$LIB/load-image.sh"
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+fi
+
 write_unit "$SYSTEMD_DIR/famhomebase-update.service" <<UNIT_EOF
 [Unit]
 Description=FamHomeBase: look for an update and apply it
@@ -335,6 +355,7 @@ fi
 if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
   "$SYSTEMCTL" enable docker.service >/dev/null 2>&1 || true
   "$SYSTEMCTL" enable famhomebase.service famhomebase-update.timer >/dev/null 2>&1
+  [ -f "$SYSTEMD_DIR/famhomebase-image-load.service" ] && "$SYSTEMCTL" enable famhomebase-image-load.service >/dev/null 2>&1
   if [ "$kiosk" -eq 1 ]; then
     "$SYSTEMCTL" enable famhomebase-kiosk.service >/dev/null 2>&1
     [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ] && "$SYSTEMCTL" enable famhomebase-splash.path famhomebase-ready.service >/dev/null 2>&1

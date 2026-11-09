@@ -31,6 +31,8 @@ jobs:
           sh tests/test-splash.sh
           sh tests/test-ready.sh
           sh tests/test-warm.sh
+          sh tests/test-load-image.sh
+          sh tests/test-build-image.sh
 
       - name: Check the image this release needs exists
         run: |
@@ -52,7 +54,7 @@ jobs:
           name="famhomebase-pi-$version"
           stage=$(mktemp -d)
           mkdir "$stage/lib" "$stage/doc"
-          cp scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/splash.sh scripts/ready.sh scripts/warm.sh scripts/famhomebase "$stage/lib/"
+          cp scripts/run.sh scripts/host-setup.sh scripts/update.sh scripts/kiosk.sh scripts/splash.sh scripts/ready.sh scripts/warm.sh scripts/load-image.sh scripts/famhomebase "$stage/lib/"
           cp -R assets/splash "$stage/lib/splash"
           cp -R assets/cursors "$stage/lib/cursors"
           cp -R assets/bridge "$stage/lib/bridge"
