@@ -34,6 +34,15 @@ runner "--version 0.5.6 --nope"; st=$?
 check "an unknown option is refused" "[ $st != 0 ] && grep -q 'unknown option' $WORK/out"
 runner "--version 0.5.6 --base-image $WORK/missing.img.xz"; st=$?
 check "a base image that does not exist is refused" "[ $st != 0 ] && grep -q 'existing .img.xz' $WORK/out"
+printf 'ssh-ed25519 AAAA test\n' > "$WORK/key.pub"; echo pw > "$WORK/pw"
+runner "--version 0.5.6 --test-key $WORK/key.pub --test-password-file $WORK/pw --hostname famhomebase-test"; st=$?
+check "the test-user options are accepted together" "[ $st = 0 ]"
+runner "--version 0.5.6 --test-key $WORK/missing.pub"; st=$?
+check "a test key file that does not exist is refused" "[ $st != 0 ] && grep -q 'existing SSH public key' $WORK/out"
+runner "--version 0.5.6 --test-password-file $WORK/pw"; st=$?
+check "a test password without a test key is refused" "[ $st != 0 ] && grep -q 'only goes with --test-key' $WORK/out"
+runner "--version 0.5.6 --hostname bad_name!"; st=$?
+check "a junk host name is refused" "[ $st != 0 ] && grep -q 'not a host name' $WORK/out"
 UN="$WORK/uname-x86" runner "--version 0.5.6"; st=$?
 check "a machine that is not 64-bit ARM is refused, with what to do" "[ $st != 0 ] && grep -q '64-bit ARM' $WORK/out"
 # a PATH of only the system tools the script uses plus the stubs, so a docker that happens to be installed on this machine can't leak in

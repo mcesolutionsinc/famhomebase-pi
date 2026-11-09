@@ -14,13 +14,17 @@
 #   --base-image FILE a Raspberry Pi OS Lite .img.xz you already have (default: download the newest official one)
 #   --extra-mb N      room to add to the base system's root partition for what is installed (default 3072)
 #   --no-compress     leave the .img as it is (faster to try; about 4 GB)
+#   --test-key FILE   TEST IMAGES ONLY: add the user `famhomebase` with this SSH public key, passwordless sudo and SSH switched on, so a test
+#                     card can be reached without Imager's first-boot settings. The file name gets "-TEST" in it: never publish such an image.
+#   --test-password-file FILE   with --test-key: also give that user the password in this file (first line)
+#   --hostname NAME   the machine's name (default: the base system's)
 set -eu
 
 REPO="${FAMHOMEBASE_REPO:-mcesolutionsinc/famhomebase-pi}"
 DL="${GITHUB_DOWNLOAD:-https://github.com}"
 BASE_URL="${FAMHOMEBASE_BASE_URL:-https://downloads.raspberrypi.com/raspios_lite_arm64_latest}"
 IMAGE_NAME="${FAMHOMEBASE_IMAGE:-ghcr.io/mcesolutionsinc/famhomebase-pi}"
-VERSION=""; ENVNAME=prod; OUT=dist; BASE=""; EXTRA=3072; COMPRESS=1
+VERSION=""; ENVNAME=prod; OUT=dist; BASE=""; EXTRA=3072; COMPRESS=1; TEST_KEY=""; TEST_PW=""; HOSTNAME_WANT=""
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"build-image","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2"; }
 die() { jlog error "$*"; exit 1; }
@@ -33,6 +37,9 @@ while [ $# -gt 0 ]; do
     --base-image) [ $# -ge 2 ] && [ -f "$2" ] || die "--base-image needs an existing .img.xz file"; BASE=$2; shift ;;
     --extra-mb) [ $# -ge 2 ] || die "--extra-mb needs a number"; EXTRA=$2; shift ;;
     --no-compress) COMPRESS=0 ;;
+    --test-key) [ $# -ge 2 ] && [ -f "$2" ] || die "--test-key needs an existing SSH public key file"; TEST_KEY=$2; shift ;;
+    --test-password-file) [ $# -ge 2 ] && [ -f "$2" ] || die "--test-password-file needs an existing file"; TEST_PW=$2; shift ;;
+    --hostname) [ $# -ge 2 ] || die "--hostname needs a name"; HOSTNAME_WANT=$2; shift ;;
     -h|--help) sed -n '2,/^set /{/^set /!p}' "$0"; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -41,6 +48,8 @@ done
 
 echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "--version is required and must look like 0.5.6 (got '$VERSION')"
 case "$ENVNAME" in prod|staging) ;; *) die "'$ENVNAME' is not an environment: use prod or staging" ;; esac
+[ -z "$TEST_PW" ] || [ -n "$TEST_KEY" ] || die "--test-password-file only goes with --test-key"
+[ -z "$HOSTNAME_WANT" ] || echo "$HOSTNAME_WANT" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$' || die "'$HOSTNAME_WANT' is not a host name (letters, digits and dashes)"
 case "$EXTRA" in ''|*[!0-9]*) die "--extra-mb must be a whole number" ;; esac
 [ "$(${FAMHOMEBASE_UNAME:-uname} -m)" = aarch64 ] || [ -n "${FAMHOMEBASE_ANY_ARCH:-}" ] || die "this needs a 64-bit ARM machine (it runs the image's own programs); on another machine set up qemu-user-static and FAMHOMEBASE_ANY_ARCH=1"
 [ "$(id -u)" -eq 0 ] || [ -n "${FAMHOMEBASE_NO_ROOT:-}" ] || die "this mounts disk images, so it needs root: run it with sudo"
@@ -87,9 +96,20 @@ printf '#!/bin/sh\nexit 101\n' > "$ROOT/usr/sbin/policy-rc.d"; chmod +x "$ROOT/u
 
 jlog info "installing Docker and the display $VERSION ($ENVNAME) into the image"
 curl -fsSL -o "$ROOT/tmp/install.sh" "$DL/$REPO/releases/download/v$VERSION/install.sh" || die "could not download install.sh of release $VERSION"
-chroot "$ROOT" /bin/sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update -q && apt-get install -y -q --no-install-recommends curl ca-certificates docker.io && systemctl enable docker.service" || die "could not install Docker in the image"
+chroot "$ROOT" /bin/sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update -q && apt-get install -y -q --no-install-recommends curl ca-certificates docker.io docker-cli && systemctl enable docker.service" || die "could not install Docker in the image"
 chroot "$ROOT" /bin/sh /tmp/install.sh --version "$VERSION" --env "$ENVNAME" --kiosk --no-start || die "the display's installer failed in the image"
 rm -f "$ROOT/tmp/install.sh"
+
+# a test image only: a user, its key and SSH, so the card can be reached without first-boot settings
+if [ -n "$TEST_KEY" ]; then
+  jlog warn "adding the test user famhomebase with a key and SSH to the image: for testing only, never publish this image"
+  chroot "$ROOT" /bin/sh -c "id famhomebase >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,video,render,input,netdev,plugdev famhomebase" || die "could not add the test user"
+  if [ -n "$TEST_PW" ]; then printf 'famhomebase:%s\n' "$(head -n 1 "$TEST_PW")" | chroot "$ROOT" chpasswd || die "could not set the test user's password"; fi
+  mkdir -p "$ROOT/home/famhomebase/.ssh"; cp "$TEST_KEY" "$ROOT/home/famhomebase/.ssh/authorized_keys"
+  chroot "$ROOT" /bin/sh -c "chown -R famhomebase:famhomebase /home/famhomebase/.ssh && chmod 700 /home/famhomebase/.ssh && chmod 600 /home/famhomebase/.ssh/authorized_keys && systemctl enable ssh.service" || die "could not set up SSH for the test user"
+  printf 'famhomebase ALL=(ALL) NOPASSWD:ALL\n' > "$ROOT/etc/sudoers.d/90-famhomebase-test"; chmod 440 "$ROOT/etc/sudoers.d/90-famhomebase-test"
+fi
+[ -z "$HOSTNAME_WANT" ] || { echo "$HOSTNAME_WANT" > "$ROOT/etc/hostname"; sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME_WANT/" "$ROOT/etc/hosts"; }
 
 # the display's own image, saved inside (loaded once at first boot by famhomebase-image-load.service)
 jlog info "saving the display image $IMAGE_NAME:$VERSION inside the image"
@@ -105,10 +125,12 @@ sync
 cleanup_mounts() { for m in dev/pts dev proc sys boot/firmware ""; do umount "$ROOT${m:+/$m}" || umount -l "$ROOT${m:+/$m}"; done; }
 cleanup_mounts
 e2fsck -fy "${DEV}p2" >/dev/null 2>&1 || true
+# free space that still holds deleted package files is data the compressor must keep: write zeros over it first (zerofree, if installed)
+if command -v zerofree >/dev/null 2>&1; then jlog info "zeroing the free space"; zerofree "${DEV}p2" || jlog warn "zerofree failed: the image will be larger"; else jlog warn "zerofree is not installed: the image will be larger (sudo apt install zerofree)"; fi
 losetup -d "$DEV"; DEV=""
 
 mkdir -p "$OUT"
-FINAL="$OUT/famhomebase-$VERSION-$ENVNAME-arm64.img"
+FINAL="$OUT/famhomebase-$VERSION-$ENVNAME${TEST_KEY:+-TEST}-arm64.img"
 mv "$IMG" "$FINAL"
 if [ "$COMPRESS" -eq 1 ]; then
   jlog info "compressing (this is the slow part)"
