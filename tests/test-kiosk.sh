@@ -1,5 +1,6 @@
 #!/bin/sh
 # Tests for scripts/kiosk.sh with stubbed chromium, curl, wlr-randr and sleep. Run: sh tests/test-kiosk.sh
+# shellcheck disable=SC2034,SC2120 # `rc` is read by the checks' eval; `run` takes extra env as arguments only when a test passes some
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 fail=0; n=0

@@ -116,12 +116,13 @@ Your `.env` is never touched. See what it did with `journalctl -u famhomebase-up
 ## 8. Try it on a computer, without systemd
 
 ```bash
-docker run -d --name famhomebase-display --restart unless-stopped -p 8080:8080 \
+docker run --rm --name famhomebase-try -p 8080:8080 \
   -e FAMHOMEBASE_API_URL=https://famhomebase.mc-esolutions.ca -e FAMHOMEBASE_ENV=prod \
-  ghcr.io/mcesolutionsinc/famhomebase-pi:0.2.0
+  ghcr.io/mcesolutionsinc/famhomebase-pi:<a version from the Releases page>
 ```
 
-Open <http://localhost:8080/>. (An image you built yourself from the app repo works the same: `docker build -f mobile/Dockerfile -t famhomebase-pi:local mobile`.)
+Open <http://localhost:8080/>; stop it with Ctrl-C. (An image you built yourself from the app repo works the same:
+`docker build -f mobile/Dockerfile -t famhomebase-pi:local mobile`.) It has its own name, so it does not clash with an installed display.
 
 ## 9. What it keeps, and what to expect
 
@@ -131,7 +132,13 @@ Open <http://localhost:8080/>. (An image you built yourself from the app repo wo
 - It picks up an edit from the website within seconds (live push), and checks at least once a minute.
 - Pairing codes change every 10 minutes. A display nobody sets up stops asking after 24 hours and says "Restart this device to set it up."
 
-## 10. Uninstalling
+## 10. Moving from an earlier install named "cloud"
+
+Before 0.2.0 the display's units and folder had "cloud" in their names (`famhomebase-cloud`, `~/famhomebase-cloud`). Run this release's installer
+as above: it removes the older units for you (they would fight the new ones for the port). Then `rm -rf ~/famhomebase-cloud`. The kiosk service
+is taken over with `--kiosk`, and the saved browser profile (the pairing) is kept.
+
+## 11. Uninstalling
 
 ```bash
 sudo systemctl disable --now famhomebase famhomebase-update.timer

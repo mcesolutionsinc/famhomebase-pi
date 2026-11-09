@@ -157,4 +157,10 @@ check "a damaged VERSION stops it" "[ $st != 0 ] && grep -q 'not a version' \$WO
 fresh 0.1.0; FAMHOMEBASE_DIR=/ sh "$I/scripts/update.sh" > "$WORK/out" 2>&1; st=$?
 check "it refuses the filesystem root as the install folder" "[ $st != 0 ]"
 
+# the releases list as GitHub may send it: all on one line, and long (the newest well past the 50th)
+fresh 0.1.0; publish 0.2.0
+mkdir -p "$FIXTURES/repos/$REPO"; { printf '['; i=1; while [ $i -le 80 ]; do printf '{"tag_name":"v0.0.%s"},' "$i"; i=$((i+1)); done; printf '{"tag_name":"v0.2.0"}]'; } > "$FIXTURES/repos/$REPO/releases"
+update
+check "a compact release list, with the newest release far down it, is read correctly" "[ \"\$(version)\" = 0.2.0 ]"
+
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

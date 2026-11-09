@@ -94,4 +94,17 @@ check "--no-start does not pull, and passes --no-start on" "[ $st = 0 ] && ! gre
 fresh; install --bogus; st=$?
 check "an unknown option is refused" "[ $st != 0 ]"
 
+# the releases list as GitHub may send it: all on one line, and long
+fresh; publish 0.2.0
+mkdir -p "$FIXTURES/repos/$REPO"; { printf '['; i=1; while [ $i -le 80 ]; do printf '{"tag_name":"v0.0.%s"},' "$i"; i=$((i+1)); done; printf '{"tag_name":"v0.2.0"}]'; } > "$FIXTURES/repos/$REPO/releases"
+install
+check "a compact release list, with the newest release far down it, is read correctly" "[ \"\$(cat $I/VERSION)\" = 0.2.0 ]"
+
+# an archive whose own folder entry is private (mode 700) must not change the mode of the folder it is unpacked into
+fresh; d="$FIXTURES/$REPO/releases/download/v0.1.0"; chmod 700 "$WORK/pay-0.1.0"
+tar -czf "$d/famhomebase-pi-0.1.0.tar.gz" -C "$WORK/pay-0.1.0" . ; (cd "$d" && sha256sum famhomebase-pi-0.1.0.tar.gz > famhomebase-pi-0.1.0.tar.gz.sha256)
+mkdir -p "$I"; chmod 755 "$I"
+install
+check "unpacking leaves the install folder's own mode alone (the archive's folder entry is not applied to it)" "[ \"\$(stat -c %a $I)\" = 755 ] && [ \"\$(cat $I/VERSION)\" = 0.1.0 ]"
+
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

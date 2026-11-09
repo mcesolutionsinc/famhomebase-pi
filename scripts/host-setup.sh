@@ -78,6 +78,16 @@ if [ -d "$NM_DIR" ] && [ -e "$NET_DIR/wlan0" ] && [ ! -e "$nm_conf" ]; then
   fi
 fi
 
+# --- an earlier install of this display (named "cloud", before 0.2.0) has its own units, which would fight this one for the container name and the port ---
+for old in famhomebase-cloud.service famhomebase-cloud-update.timer famhomebase-cloud-update.service; do
+  if [ -f "$SYSTEMD_DIR/$old" ]; then
+    "$SYSTEMCTL" disable --now "$old" >/dev/null 2>&1
+    rm -f "$SYSTEMD_DIR/$old"
+    jlog info "removed the older unit $old (this install replaces it; the old folder can be deleted)"
+    changed_units=1
+  fi
+done
+
 # --- the system units --------------------------------------------------------------------------------------------------------------
 hours=$(getenv CHECK_INTERVAL_HOURS)
 case "$hours" in ''|*[!0-9]*) hours=6 ;; esac

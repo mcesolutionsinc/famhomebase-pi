@@ -62,8 +62,8 @@ fi
 
 if [ -z "$WANT" ]; then
   say "Looking up the newest release..."
-  body=$($CURL -fsSL "$API/repos/$REPO/releases?per_page=50") || die "could not reach GitHub to find the newest release of $REPO"
-  for v in $(echo "$body" | sed -n 's/.*"tag_name": *"v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p'); do
+  body=$($CURL -fsSL "$API/repos/$REPO/releases?per_page=100") || die "could not reach GitHub to find the newest release of $REPO"
+  for v in $(echo "$body" | grep -o '"tag_name": *"v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' | sed 's/.*"v\([0-9.]*\)"/\1/'); do
     if [ -z "$WANT" ]; then WANT=$v; continue; fi
     # keep the higher of WANT and v (sort -V is not in every busybox: compare field by field)
     higher=$(printf '%s\n%s\n' "$WANT" "$v" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
@@ -86,7 +86,8 @@ actual=$(sha256sum "$tmp/$name.tar.gz" | cut -d' ' -f1)
 existing=""
 [ -f "$DIR/VERSION" ] && existing=$(tr -d ' \r\n' < "$DIR/VERSION")
 mkdir -p "$DIR"
-tar -xzf "$tmp/$name.tar.gz" -C "$DIR"
+# unpacked aside and copied in: an archive's entry for its own folder ("./") must not change the mode or owner of the install folder
+mkdir "$tmp/new" && tar --no-same-owner -xzf "$tmp/$name.tar.gz" -C "$tmp/new" && cp -R "$tmp/new/." "$DIR/" || die "could not unpack release $WANT"
 DIR=$(cd "$DIR" && pwd)
 if [ -n "$existing" ]; then say "Updated $existing -> $WANT in $DIR"; else say "Installed in $DIR"; fi
 

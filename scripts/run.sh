@@ -6,7 +6,7 @@
 #   FAMHOMEBASE_API_URL        where the cloud is, https://host with no path (default https://famhomebase.mc-esolutions.ca)
 #   FAMHOMEBASE_ENV            prod or staging (default prod; staging shows a STAGING banner)
 #   FAMHOMEBASE_PORT           the port you browse to (default 80)
-#   FAMHOMEBASE_IMAGE    the image, without a tag (default ghcr.io/mcesolutionsinc/famhomebase-pi)
+#   FAMHOMEBASE_IMAGE          the image, without a tag (default ghcr.io/mcesolutionsinc/famhomebase-pi)
 # The container's own start-up refuses a bad API address with one JSON line saying why.
 set -eu
 

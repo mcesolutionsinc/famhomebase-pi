@@ -51,9 +51,9 @@ ver_gt() {
 
 # The highest vX.Y.Z among the repo's releases, as x.y.z (a release candidate, `nightly` and anything else that is not a plain version is ignored).
 latest_version() {
-  body=$($CURL -fsSL "$API/repos/$REPO/releases?per_page=50" 2>/dev/null) || return 1
+  body=$($CURL -fsSL "$API/repos/$REPO/releases?per_page=100" 2>/dev/null) || return 1
   best=""
-  for v in $(echo "$body" | sed -n 's/.*"tag_name": *"v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p'); do
+  for v in $(echo "$body" | grep -o '"tag_name": *"v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' | sed 's/.*"v\([0-9.]*\)"/\1/'); do
     if [ -z "$best" ] || ver_gt "$v" "$best"; then best=$v; fi
   done
   [ -n "$best" ] && echo "$best"

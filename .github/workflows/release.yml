@@ -54,7 +54,8 @@ jobs:
           cp docs/INSTALL.md docs/TROUBLESHOOTING.md "$stage/docs/"
           echo "$version" > "$stage/VERSION"
           mkdir dist
-          tar -czf "dist/$name.tar.gz" -C "$stage" .
+          # named entries, not "." : an entry for the folder itself would reset the install folder's mode and owner when it is unpacked
+          tar -czf "dist/$name.tar.gz" -C "$stage" scripts docs .env.example README.md LICENSE VERSION
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           cp scripts/install.sh dist/install.sh
           ls -l dist

@@ -81,6 +81,11 @@ check "a fresh --kiosk install starts the kiosk once, without restarting it stra
 fresh; ACTIVE=1 setup --kiosk
 check "a kiosk that was already running (on an older install) is moved onto the new files with a restart" "grep -q 'user: systemctl --user restart famhomebase-kiosk.service' \$CTL_LOG"
 
+fresh; mkdir -p "$UNIT"; for u in famhomebase-cloud.service famhomebase-cloud-update.service famhomebase-cloud-update.timer; do echo old > "$UNIT/$u"; done; setup
+check "the units of an earlier install named cloud are disabled and removed, so they do not fight the new ones for the container name and the port" "[ ! -e $UNIT/famhomebase-cloud.service ] && [ ! -e $UNIT/famhomebase-cloud-update.timer ] && [ ! -e $UNIT/famhomebase-cloud-update.service ] && grep -q 'disable --now famhomebase-cloud.service' \$CTL_LOG && grep -q 'removed the older unit famhomebase-cloud.service' \$WORK/out && [ -f $UNIT/famhomebase.service ]"
+fresh; setup
+check "and with none of the older units there is nothing to remove" "! grep -q 'removed the older unit' \$WORK/out"
+
 fresh; setup --kiosk --no-start
 check "--no-start enables but starts nothing" "! grep -q 'start famhomebase' \$CTL_LOG && grep -q 'enable famhomebase.service' \$CTL_LOG && ! grep -q 'enable --now' \$CTL_LOG"
 
