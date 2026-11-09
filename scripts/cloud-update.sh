@@ -23,6 +23,7 @@ DL="${GITHUB_DOWNLOAD:-https://github.com}"
 DIR="${FAMHOMEBASE_DIR:-$(cd "$(dirname "$ORIG")/.." && pwd)}"
 DOCKER="${DOCKER:-docker}"
 CURL="${CURL:-curl}"
+CHOWN="${CHOWN:-chown}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT_SECONDS:-240}"
 HEALTH_POLL="${HEALTH_POLL_SECONDS:-5}"
 RETRY_AFTER_FAILURE="${RETRY_AFTER_FAILURE_SECONDS:-86400}"
@@ -88,6 +89,15 @@ wait_healthy() { # $1 = the version that should be running
 # the files a release replaces; .env, .rollback and the like stay
 SWAP_FILES="VERSION README.md LICENSE .env.example"
 SWAP_DIRS="scripts docs"
+# This runs as root, so what it writes would be root's: hand it back to whoever owns the install folder (the desktop user), so they can still
+# edit it and the installer, run as them, can still replace it. (The old line's updater did the same: fix_owner.)
+fix_owner() {
+  owner=$(stat -c '%u:%g' "$DIR" 2>/dev/null) || return 0
+  for f in $SWAP_FILES $SWAP_DIRS .rollback .update-failed .host-applied; do
+    [ -e "$DIR/$f" ] && "$CHOWN" -R "$owner" "$DIR/$f" 2>/dev/null
+  done
+  return 0
+}
 restore_from() { # $1 = rollback dir
   for f in $SWAP_FILES; do [ -f "$1/$f" ] && cp -f "$1/$f" "$DIR/$f"; done
   for d in $SWAP_DIRS; do
@@ -133,6 +143,7 @@ for d in $SWAP_DIRS; do [ -d "$DIR/$d" ] && cp -r "$DIR/$d" "$rollback/$d"; done
 fail() {
   jlog error "$1: putting the old version back"
   restore_from "$rollback"
+  fix_owner
   # the old image is normally still here; if it was pruned in the meantime, fetch it again
   "$DOCKER" image inspect "$image:$current" >/dev/null 2>&1 || "$DOCKER" pull "$image:$current" >/dev/null 2>&1
   sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1
@@ -145,7 +156,9 @@ for f in $SWAP_FILES; do [ -f "$tmp/new/$f" ] && cp -f "$tmp/new/$f" "$DIR/$f"; 
 for d in $SWAP_DIRS; do
   if [ -d "$tmp/new/$d" ]; then rm -rf "${DIR:?}/$d"; cp -r "$tmp/new/$d" "$DIR/$d"; fi
 done
+fix_owner
 sh "$DIR/scripts/cloud-host-setup.sh" --update >/dev/null 2>&1 || fail "applying the new files to this machine failed"
+fix_owner
 wait_healthy "$latest" || fail "the display did not become healthy on $latest within ${HEALTH_TIMEOUT}s"
 
 rm -f "$DIR/.update-failed"

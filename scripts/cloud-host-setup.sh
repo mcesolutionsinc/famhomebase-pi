@@ -203,5 +203,6 @@ if [ "$kiosk" -eq 1 ]; then
     jlog warn "could not reach $USER_NAME's systemd (normal before the first desktop login): the kiosk starts at the next login"
   fi
   printf '%s\n' "$scripts_now" > "$state" 2>/dev/null || true
+  chown "$USER_NAME" "$state" 2>/dev/null || true
 fi
 exit 0

@@ -34,6 +34,8 @@ case "$1" in
 esac
 STUB
 chmod +x "$WORK/bin/curl" "$WORK/bin/docker"
+printf '#!/bin/sh\necho "chown $*" >> "$WORK/chown.log"\n' > "$WORK/bin/chown"; chmod +x "$WORK/bin/chown"
+export WORK CHOWN="$WORK/bin/chown"
 export INSTDIR="$WORK/inst" CURL="$WORK/bin/curl" DOCKER="$WORK/bin/docker" DOCKER_LOG="$WORK/docker.log" HEALTH_TIMEOUT_SECONDS=1 HEALTH_POLL_SECONDS=1
 export GITHUB_API=https://api.example.test GITHUB_DOWNLOAD=https://dl.example.test
 
@@ -66,7 +68,7 @@ list() { mkdir -p "$FIXTURES/repos/$REPO"; : > "$FIXTURES/repos/$REPO/releases";
 # fresh <version>: an install at that version, with a .env that must survive
 fresh() {
   FIXTURES="$WORK/fx"; rm -rf "$FIXTURES" "$WORK/inst" "$WORK/host.log"; mkdir -p "$FIXTURES" "$WORK/inst/scripts" "$WORK/inst/docs"
-  export FIXTURES; : > "$DOCKER_LOG"; : > "$WORK/host.log"
+  export FIXTURES; : > "$DOCKER_LOG"; : > "$WORK/host.log"; : > "$WORK/chown.log"
   cp "$SCRIPT" "$WORK/inst/scripts/cloud-update.sh"
   echo "$1" > "$WORK/inst/VERSION"
   echo "old run $1" > "$WORK/inst/scripts/cloud-run.sh"
@@ -123,6 +125,11 @@ HEALTH=healthy; update; st=$?
 check "so the next check leaves it alone" "[ $st = 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'not trying it again' \$WORK/out"
 RETRY_AFTER_FAILURE_SECONDS=0 update
 check "and after the wait it tries again, and succeeds" "[ \"\$(version)\" = 0.2.0 ] && [ ! -e $I/.update-failed ]"
+
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; update
+check "what a root update wrote is handed back to the owner of the install folder (scripts, docs, version, the saved copy), recursively" "grep -q \"^chown -R \$(stat -c %u:%g $I) $I/scripts\\$\" \$WORK/chown.log && grep -q \"chown -R .* $I/docs\\$\" \$WORK/chown.log && grep -q \"chown -R .* $I/VERSION\\$\" \$WORK/chown.log && grep -q \"chown -R .* $I/.rollback\\$\" \$WORK/chown.log"
+fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; HEALTH=unhealthy update
+check "and again after a rollback puts the old files back" "[ \$(grep -c \"chown -R .* $I/scripts\\$\" \$WORK/chown.log) -ge 3 ]"
 
 fresh 0.1.0; publish 0.2.0; list cloud-v0.2.0; RUNNING=0.1.0 update; st=$?
 check "a restart that never happened (the OLD container still running and healthy) does not count as the new version up" "[ $st != 0 ] && [ \"\$(version)\" = 0.1.0 ] && grep -q 'did not become healthy on 0.2.0' \$WORK/out"
