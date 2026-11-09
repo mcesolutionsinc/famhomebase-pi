@@ -41,7 +41,7 @@ jlog info "starting $IMAGE:$VERSION on $BIND:$PORT for $ENVNAME ($API)"
 # 127.0.0.1, not localhost: in the Alpine nginx image localhost can resolve to ::1 first and nginx listens on IPv4 only.
 # The state folder is shared with the container as /state: the page tells its web server how the screen is mounted, and the web server
 # keeps that in a file there for the boot splash (see splash.sh).
-mkdir -p "$STATE_DIR/state" 2>/dev/null
+mkdir -p "$STATE_DIR/state" 2>/dev/null && chmod 0777 "$STATE_DIR/state" 2>/dev/null # the container's web server user writes in it
 exec "$DOCKER" run --rm --name "$NAME" -p "$BIND:$PORT:8080" -v "$STATE_DIR/state:/state" \
   -e "FAMHOMEBASE_API_URL=$API" -e "FAMHOMEBASE_ENV=$ENVNAME" \
   --health-cmd "wget -qO- http://127.0.0.1:8080/runtime-config.json" \

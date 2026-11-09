@@ -160,12 +160,13 @@ boot_params() {
   fi
   config="$BOOT_DIR/config.txt"
   if [ -f "$config" ] && ! grep -q '^disable_splash=1' "$config"; then
-    printf '\n# FamHomeBase: no rainbow screen at power-up\ndisable_splash=1\n' >> "$config" && jlog info "turned off the firmware's rainbow screen in $config"
+    # under [all], so it applies to every model whatever section the file happened to end in
+    printf '\n# FamHomeBase: no rainbow screen at power-up\n[all]\ndisable_splash=1\n' >> "$config" && jlog info "turned off the firmware's rainbow screen in $config"
   fi
 }
 
 install() {
-  command -v plymouth >/dev/null 2>&1 || [ -d "$THEMES_DIR" ] || {
+  command -v plymouth >/dev/null 2>&1 || {
     jlog info "installing plymouth (the boot splash needs it)"
     DEBIAN_FRONTEND=noninteractive "$APT_GET" update -q >/dev/null 2>&1 || true
     DEBIAN_FRONTEND=noninteractive "$APT_GET" install -y -q plymouth >/dev/null 2>&1 || { jlog warn "could not install plymouth: the boot splash is skipped (sudo apt install plymouth, then run: sudo $LIB/splash.sh install)"; return 0; }

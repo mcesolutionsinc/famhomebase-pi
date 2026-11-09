@@ -105,6 +105,10 @@ fresh; setup --kiosk
 check "--kiosk sets up the boot splash (the packages, the boot settings, the theme)" "grep -q '^splash install' \$CTL_LOG"
 check "and writes the unit that makes the theme again when the page writes a new rotation: a path unit on the rotation file, and the service it runs" "grep -q '^PathChanged=$STATE/state/rotation' $UNIT/famhomebase-splash.path && grep -q '^Unit=famhomebase-splash.service' $UNIT/famhomebase-splash.path && grep -Fxq 'ExecStart=/bin/sh \"$INST/splash.sh\" apply' $UNIT/famhomebase-splash.service && grep -q 'enable famhomebase-splash.path' \$CTL_LOG && grep -q 'start famhomebase-splash.path' \$CTL_LOG"
 check "plymouth keeps the last picture on the screen when it quits, and the kiosk starts after plymouth has left (cage cannot have the screen before)" "grep -q 'plymouth quit --retain-splash' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^After=.*plymouth-quit.service plymouth-quit-wait.service' $KU"
+fresh; setup --kiosk; sed -i 's/^PathChanged=.*/PathChanged=\/old/' "$UNIT/famhomebase-splash.path"; : > "$CTL_LOG"; setup --kiosk --update
+check "a splash unit that changed is restarted, so the running watch follows it" "grep -q 'system: restart famhomebase-splash.path' \$CTL_LOG"
+fresh; setup --kiosk; : > "$CTL_LOG"; setup --kiosk --update
+check "and one that did not change is only started (it already runs)" "! grep -q 'restart famhomebase-splash.path' \$CTL_LOG"
 fresh; setup
 check "no splash without --kiosk" "! grep -q '^splash' \$CTL_LOG && [ ! -e $UNIT/famhomebase-splash.path ]"
 fresh; FAIL_SPLASH=1 setup --kiosk; st=$?

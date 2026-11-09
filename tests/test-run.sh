@@ -24,7 +24,7 @@ run() { sh "$WORK/inst/run.sh" > "$WORK/out" 2> "$WORK/err"; }
 
 fresh 0.1.0; run; st=$?
 check "starts with defaults: prod, port 80 on the loopback only, the production site" "[ $st = 0 ] && grep -q 'run --rm --name famhomebase-display -p 127.0.0.1:80:8080' \$DOCKER_LOG && grep -q 'FAMHOMEBASE_ENV=prod' \$DOCKER_LOG && grep -q 'FAMHOMEBASE_API_URL=https://famhomebase.mc-esolutions.ca' \$DOCKER_LOG"
-check "the state folder is shared with the container (as /state), made if it is not there" "grep -q -- \"-v $WORK/state/state:/state\" \$DOCKER_LOG && [ -d $WORK/state/state ]"
+check "the state folder is shared with the container (as /state), made if it is not there" "grep -q -- \"-v $WORK/state/state:/state\" \$DOCKER_LOG && [ -d $WORK/state/state ] && [ \"\$(stat -c %a $WORK/state/state)\" = 777 ]"
 check "the image is the pinned version, from GHCR" "grep -q 'ghcr.io/mcesolutionsinc/famhomebase-pi:0.1.0\$' \$DOCKER_LOG"
 check "it removes a leftover container of the same name first" "head -n 1 \$DOCKER_LOG | grep -q '^rm -f famhomebase-display'"
 check "it carries a health check on the page's own server" "grep -q -- '--health-cmd wget -qO- http://127.0.0.1:8080/runtime-config.json' \$DOCKER_LOG"

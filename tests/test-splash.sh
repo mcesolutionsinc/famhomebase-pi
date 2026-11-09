@@ -17,12 +17,13 @@ if [ "${1:-}" = -R ]; then echo "rebuild $2" >> "$LOG"; [ -n "${FAIL_REBUILD:-}"
 cat "$WORK/current-theme" 2>/dev/null || echo text
 STUB
 printf '#!/bin/sh\necho "apt-get $*" >> "$LOG"\n[ -z "${FAIL_APT:-}" ]\n' > "$WORK/bin/apt-get"
+mkdir -p "$WORK/tools"; printf '#!/bin/sh\n' > "$WORK/tools/plymouth"; chmod +x "$WORK/tools/plymouth"
 chmod +x "$WORK/bin/"*
 # a PATH with only the system tools the script uses (and the stubs), where plymouth must be missing: a machine that has it must not leak in
 mkdir -p "$WORK/min"
 for t in sh head tr cat date mktemp diff cp mkdir rm chmod mv dirname grep wc cut stat env printf; do ln -sf "$(command -v $t)" "$WORK/min/$t" 2>/dev/null; done
 MINPATH="$WORK/bin:$WORK/min"
-export LOG="$WORK/log" WORK
+export PATH="$WORK/tools:$PATH" LOG="$WORK/log" WORK
 export FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_PLYMOUTH_DIR="$WORK/themes" FAMHOMEBASE_BOOT_DIR="$WORK/boot"
 export PLYMOUTH_SET_DEFAULT_THEME="$WORK/bin/set-theme" PLYMOUTH_GET_DEFAULT_THEME="$WORK/bin/set-theme" APT_GET="$WORK/bin/apt-get"
 T="$WORK/themes/famhomebase"
@@ -71,22 +72,24 @@ fresh; rm -f "$WORK/inst/splash/dot.png"; splash apply; st=$?
 check "missing pictures: an error, and nothing is installed or rebuilt" "[ $st != 0 ] && [ ! -d $T ] && ! grep -q rebuild \$LOG && grep -q '\"level\":\"error\"' \$WORK/out"
 
 # install
-fresh; mkdir -p "$WORK/themes"; splash install; st=$?
+fresh; splash install; st=$?
 check "install with plymouth there: no apt, the theme is made" "[ $st = 0 ] && ! grep -q '^apt-get' \$LOG && [ -f $T/famhomebase.script ]"
 check "the state folder is made and the web server's user can write in it" "[ -d $WORK/state/state ] && [ \"\$(stat -c %a $WORK/state/state)\" = 777 ]"
 check "quiet-boot words are added to the kernel command line, and the rest of it (the Imager's cloud-init words too) is kept as it was" "grep -q 'ds=nocloud;i=rpi-imager-1' $WORK/boot/cmdline.txt && grep -q 'console=tty1' $WORK/boot/cmdline.txt && grep -q ' loglevel=3' $WORK/boot/cmdline.txt && grep -q ' logo.nologo' $WORK/boot/cmdline.txt && grep -q ' vt.global_cursor_default=0' $WORK/boot/cmdline.txt && [ \$(wc -l < $WORK/boot/cmdline.txt) = 1 ]"
 check "words already there (quiet, splash) are not doubled" "[ \$(grep -o ' quiet' $WORK/boot/cmdline.txt | wc -l) = 1 ] && [ \$(grep -o ' splash' $WORK/boot/cmdline.txt | wc -l) = 1 ]"
-check "the firmware's rainbow screen is turned off" "grep -q '^disable_splash=1' $WORK/boot/config.txt"
+check "the firmware's rainbow screen is turned off, under [all] so it applies to every model" "grep -q '^disable_splash=1' $WORK/boot/config.txt && [ \"\$(tail -n 2 $WORK/boot/config.txt | head -n 1)\" = '[all]' ]"
 cp "$WORK/boot/cmdline.txt" "$WORK/cmd.1"; cp "$WORK/boot/config.txt" "$WORK/cfg.1"; splash install
 check "running install again changes nothing" "cmp -s $WORK/boot/cmdline.txt $WORK/cmd.1 && cmp -s $WORK/boot/config.txt $WORK/cfg.1"
-fresh; printf 'quiet splash=0 console=tty1\n' > "$WORK/boot/cmdline.txt"; mkdir -p "$WORK/themes"; splash install
+fresh; printf 'quiet splash=0 console=tty1\n' > "$WORK/boot/cmdline.txt"; splash install
 check "a word the owner set in their own way (splash=0) is respected, not added again" "grep -q 'splash=0' $WORK/boot/cmdline.txt && [ \$(grep -o 'splash' $WORK/boot/cmdline.txt | wc -l) = 1 ]"
-fresh; rm -f "$WORK/boot/cmdline.txt"; mkdir -p "$WORK/themes"; splash install; st=$?
+fresh; rm -f "$WORK/boot/cmdline.txt"; splash install; st=$?
 check "no cmdline file is a warning, and the rest still happens" "[ $st = 0 ] && grep -q 'no .*cmdline.txt' \$WORK/out && [ -f $T/famhomebase.script ]"
 fresh; PATH="$MINPATH" splash install
 check "plymouth missing: the package lists are refreshed, then it is installed with apt" "[ \"\$(grep -n '^apt-get update' \$LOG | head -1 | cut -d: -f1)\" -lt \"\$(grep -n '^apt-get install' \$LOG | head -1 | cut -d: -f1)\" ] && grep -q 'apt-get install -y -q plymouth' \$LOG"
 fresh; FAIL_APT=1 PATH="$MINPATH" splash install; st=$?
 check "plymouth that cannot be installed: a warning, no failure, no half-made theme" "[ $st = 0 ] && grep -q 'could not install plymouth' \$WORK/out && [ ! -d $T ]"
+fresh; PATH="$MINPATH" FAIL_APT=1 splash install; : > "$LOG"; PATH="$MINPATH" splash install
+check "and the next install tries to install it again (a folder made by the failed run does not count as plymouth being there)" "grep -q '^apt-get install' \$LOG"
 
 fresh; splash bogus; st=$?
 check "an unknown command is refused" "[ $st = 2 ]"

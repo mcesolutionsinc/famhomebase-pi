@@ -276,7 +276,10 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
   fi
   if [ "$START" -eq 1 ]; then
     "$SYSTEMCTL" start famhomebase-update.timer >/dev/null 2>&1
-    [ "$kiosk" -eq 1 ] && [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ] && "$SYSTEMCTL" start famhomebase-splash.path >/dev/null 2>&1
+    if [ "$kiosk" -eq 1 ] && [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ]; then
+      # a changed unit needs the running watch restarted, or it keeps the old one until the next boot
+      if [ "$changed_units" -eq 1 ]; then "$SYSTEMCTL" restart famhomebase-splash.path >/dev/null 2>&1; else "$SYSTEMCTL" start famhomebase-splash.path >/dev/null 2>&1; fi
+    fi
     if [ "$UPDATE" -eq 1 ]; then
       "$SYSTEMCTL" restart famhomebase.service >/dev/null 2>&1 && jlog info "restarted the display"
       [ "$changed_units" -eq 1 ] && "$SYSTEMCTL" restart famhomebase-update.timer >/dev/null 2>&1
