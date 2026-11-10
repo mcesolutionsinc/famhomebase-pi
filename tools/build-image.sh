@@ -103,15 +103,21 @@ rm -f "$ROOT/tmp/install.sh"
 # boot at that point until someone answers (cloud-init's last stage waits for the boot to finish): switched off
 chroot "$ROOT" /bin/sh -c "systemctl mask userconfig.service" || die "could not switch off the first-boot user question"
 
-# the login prompt on the first terminal: the kiosk owns that screen (its unit says Conflicts=getty@tty1), and on a first boot the prompt won
-# the race and the kiosk was dropped from the boot (no display until a power cycle). No prompt there, nothing to race (SSH and the other terminals stay)
-rm -f "$ROOT/etc/systemd/system/getty.target.wants/getty@tty1.service"
-chroot "$ROOT" /bin/sh -c "systemctl mask getty@tty1.service" || die "could not switch off the login prompt on the first terminal"
+# the login prompt on the first terminal. The release's kiosk unit says Conflicts=getty@tty1: on a first boot the user step (Pi OS's userconf,
+# run by cloud-init) starts that prompt, which cancelled the kiosk's waiting start (no display until a power cycle). So here: the kiosk
+# unit loses the Conflicts line and stops the prompt itself when it starts (the next release's host-setup.sh writes it that way), and the
+# prompt is a do-nothing service, so that userconf can start it without a login appearing (masking it made userconf fail: no password, no key)
+KUNIT="$ROOT/etc/systemd/system/famhomebase-kiosk.service"
+[ -f "$KUNIT" ] || die "the kiosk unit is not in the image"
+sed -i '/^Conflicts=getty@tty1.service/d' "$KUNIT"
+grep -q 'stop getty@tty1' "$KUNIT" || sed -i '/^ExecStart=\/usr\/bin\/cage/i ExecStartPre=-+/bin/systemctl stop getty@tty1.service' "$KUNIT"
+mkdir -p "$ROOT/etc/systemd/system/getty@tty1.service.d"
+printf '[Service]\nType=simple\nExecStartPre=\nExecStart=\nExecStart=/bin/sleep infinity\nStandardInput=null\nTTYReset=no\nTTYVHangup=no\nTTYVTDisallocate=no\n' > "$ROOT/etc/systemd/system/getty@tty1.service.d/10-noop.conf"
 
 # SSH host keys: the base makes them only when systemd says "first boot", which was not true on the test card ("no hostkeys available").
 # Make sure they exist whenever SSH starts (each device makes its own; none are baked in)
 mkdir -p "$ROOT/etc/systemd/system/ssh.service.d"
-printf '[Service]\nExecStartPre=/usr/bin/ssh-keygen -A\n' > "$ROOT/etc/systemd/system/ssh.service.d/famhomebase-hostkeys.conf"
+printf '[Service]\nExecStartPre=\nExecStartPre=/usr/bin/ssh-keygen -A\nExecStartPre=/usr/sbin/sshd -t\n' > "$ROOT/etc/systemd/system/ssh.service.d/famhomebase-hostkeys.conf"
 rm -f "$ROOT"/etc/ssh/ssh_host_*
 
 # the display's own image, saved inside (loaded once at first boot by famhomebase-image-load.service)

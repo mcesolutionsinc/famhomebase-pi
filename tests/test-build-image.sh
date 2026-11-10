@@ -50,5 +50,6 @@ sh "$SCRIPT" --help > "$WORK/out" 2>&1
 check "--help prints the usage" "grep -q 'build-image.sh --version' $WORK/out"
 
 check "the image gets SSH host keys made at start, and none baked in" "grep -q 'ExecStartPre=/usr/bin/ssh-keygen -A' $SCRIPT && grep -q 'rm -f \"\$ROOT\"/etc/ssh/ssh_host_' $SCRIPT"
-check "the image has no login prompt on the kiosk's terminal (it raced the kiosk on first boot)" "grep -q 'systemctl mask getty@tty1.service' $SCRIPT"
+check "the kiosk unit in the image loses its Conflicts line and stops the login prompt itself; the prompt becomes a no-op (not masked)" "grep -q \"Conflicts=getty@tty1.service/d\" $SCRIPT && grep -q 'stop getty@tty1' $SCRIPT && grep -q 'sleep infinity' $SCRIPT && ! grep -q 'systemctl mask getty' $SCRIPT"
+check "SSH makes host keys before the unit's own sshd -t check" "grep -q 'ExecStartPre=/usr/bin/ssh-keygen -A.*ExecStartPre=/usr/sbin/sshd -t' $SCRIPT"
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

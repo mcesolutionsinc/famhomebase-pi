@@ -78,8 +78,9 @@ check "an interval out of range falls back to 6" "grep -q '^OnUnitActiveSec=6h' 
 
 # --- the kiosk
 fresh; setup --kiosk; st=$?
-check "--kiosk writes the kiosk as a system unit: cage running this install's kiosk.sh, as its own user, on the first terminal" "[ $st = 0 ] && grep -Fxq 'ExecStart=/usr/bin/cage -- \"$INST/kiosk.sh\"' $KU && grep -q '^User=famhomebase-kiosk' $KU && grep -q '^TTYPath=/dev/tty1' $KU && grep -q '^PAMName=login' $KU && grep -q '^Conflicts=getty@tty1.service' $KU && grep -q '^Restart=always' $KU"
+check "--kiosk writes the kiosk as a system unit: cage running this install's kiosk.sh, as its own user, on the first terminal" "[ $st = 0 ] && grep -Fxq 'ExecStart=/usr/bin/cage -- \"$INST/kiosk.sh\"' $KU && grep -q '^User=famhomebase-kiosk' $KU && grep -q '^TTYPath=/dev/tty1' $KU && grep -q '^PAMName=login' $KU && grep -q '^Restart=always' $KU"
 check "the kiosk brings terminal 1 to the front first (a desktop may have left another there), and ignores a failure of that" "grep -q '^ExecStartPre=-+/usr/bin/chvt 1' $KU"
+check "the kiosk stops the login prompt itself and has no Conflicts= on it (a prompt started by the first-boot user step cancelled the kiosk's start)" "grep -Fxq 'ExecStartPre=-+/bin/systemctl stop getty@tty1.service' $KU && ! grep -q '^Conflicts=getty' $KU"
 check "the kiosk is enabled and started, and boots to the text target (no login manager at boot)" "grep -q 'system: enable famhomebase-kiosk.service' \$CTL_LOG && grep -q 'system: start famhomebase-kiosk.service' \$CTL_LOG && grep -q 'system: set-default multi-user.target' \$CTL_LOG"
 check "it makes the service user (a system user with no shell) and gives it the browser profile folder" "grep -q '^useradd --system --home-dir $STATE/kiosk-home --create-home --shell /usr/sbin/nologin' \$CTL_LOG && [ -d $STATE/kiosk-profile ] && grep -q '^chown -R famhomebase-kiosk $STATE/kiosk-profile' \$CTL_LOG"
 check "with cage and the browser already there, nothing is installed" "! grep -q '^apt-get' \$CTL_LOG"

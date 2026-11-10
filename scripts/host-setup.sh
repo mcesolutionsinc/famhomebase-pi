@@ -228,7 +228,6 @@ if [ "$kiosk" -eq 1 ]; then
 Description=FamHomeBase kiosk display (cage, then the browser)
 After=systemd-user-sessions.service famhomebase.service famhomebase-ready.service getty@tty1.service plymouth-quit.service plymouth-quit-wait.service
 Wants=famhomebase.service
-Conflicts=getty@tty1.service
 
 [Service]
 User=$KIOSK_USER
@@ -244,6 +243,9 @@ UtmpIdentifier=tty1
 UtmpMode=user
 # an invisible pointer (the screen is not touched or pointed at): cage and the browser both read the cursor theme from here
 Environment=XCURSOR_PATH=$LIB/cursors XCURSOR_THEME=famhomebase-blank XCURSOR_SIZE=24
+# the login prompt on this terminal is stopped here, not by a Conflicts= line: a Conflicts= made a prompt started by the first-boot user step (cloud-init's
+# userconf) cancel the kiosk's waiting start, and the display never came up on a first boot
+ExecStartPre=-+/bin/systemctl stop getty@tty1.service
 # the screen is only usable by a session on the terminal that is in front: bring terminal 1 forward (a desktop may have left 7 there)
 ExecStartPre=-+/usr/bin/chvt 1
 # the text cursor of that terminal shows on the black screen between the splash and the browser: switch it off
