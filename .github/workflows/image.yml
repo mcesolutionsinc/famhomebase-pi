@@ -1,0 +1,98 @@
+name: Build system image (manual)
+
+# Builds the ready-made FamHomeBase system image (tools/build-image.sh) for a display release that already exists. MANUAL ONLY: the running
+# display updates itself online, so an image is only needed when something on disk changes. Never runs on a tag or a push.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Display release to put in the image (X.Y.Z; its release and image must exist)"
+        required: true
+        type: string
+      env:
+        description: "prod is the real image; staging is for tests only (never published as the Imager list)"
+        required: true
+        type: choice
+        options: [prod, staging]
+        default: prod
+      publish:
+        description: "Publish the image as the release image-X.Y.Z (and, for prod, the Imager list as the release imager)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # a 64-bit ARM runner: the build runs the image's own programs in a chroot, with no emulation (free for public repositories)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ inputs.version }}
+      TARGET_ENV: ${{ inputs.env }}
+      PUBLISH: ${{ inputs.publish }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the inputs
+        run: |
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "version must look like 0.5.10"; exit 1; }
+          gh release view "v$VERSION" --repo "$REPO" >/dev/null || { echo "release v$VERSION of this repository does not exist"; exit 1; }
+
+      - name: Tools and disk space
+        run: |
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q zerofree parted xz-utils e2fsprogs curl util-linux
+          # the build needs about 10 GB: take back what the runner image carries that we do not use
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache 2>/dev/null || true
+          df -h /
+
+      - name: Build the image
+        run: |
+          mkdir -p dist
+          sudo sh tools/build-image.sh --version "$VERSION" --env "$TARGET_ENV" --out "$PWD/dist" \
+            --url "https://github.com/$REPO/releases/download/image-$VERSION/famhomebase-$VERSION-$TARGET_ENV-arm64.img.xz"
+          sudo chown -R "$(id -u):$(id -g)" dist
+          ls -l dist
+
+      - name: Check the result
+        run: |
+          cd dist
+          img="famhomebase-$VERSION-$TARGET_ENV-arm64.img.xz"
+          sha256sum -c "$img.sha256"
+          size=$(wc -c < "$img")
+          echo "image size: $size bytes"
+          if [ "$size" -le 300000000 ] || [ "$size" -ge 1500000000 ]; then echo "the image is outside the expected 0.3 to 1.5 GB: something is wrong"; exit 1; fi
+          xz -t "$img"
+          [ "$TARGET_ENV" != prod ] || grep -q '"init_format": "cloudinit-rpi"' "famhomebase-$VERSION-prod-arm64.os_list.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: famhomebase-image-${{ inputs.version }}-${{ inputs.env }}
+          path: dist/
+          retention-days: 7
+
+      - name: Publish the image
+        if: ${{ inputs.publish }}
+        run: |
+          img="dist/famhomebase-$VERSION-$TARGET_ENV-arm64.img.xz"
+          notes="FamHomeBase display $VERSION ($TARGET_ENV) as a ready-made system image for a Raspberry Pi 4 or 5, written with Raspberry Pi Imager: see docs/INSTALL.md. Built by hand-started CI from release v$VERSION."
+          # never the repository's "latest" release: the install command and the updater look at the display releases
+          if gh release view "image-$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "image-$VERSION" "$img" "$img.sha256" --clobber --repo "$REPO"
+          else
+            gh release create "image-$VERSION" "$img" "$img.sha256" --repo "$REPO" --title "System image $VERSION ($TARGET_ENV)" --notes "$notes" --latest=false
+          fi
+
+      - name: Publish the Imager list (prod only)
+        if: ${{ inputs.publish && inputs.env == 'prod' }}
+        run: |
+          cp "dist/famhomebase-$VERSION-prod-arm64.os_list.json" imager.json
+          if ! gh release view imager --repo "$REPO" >/dev/null 2>&1; then
+            gh release create imager --repo "$REPO" --title "Imager list" --notes "The list Raspberry Pi Imager reads to offer the FamHomeBase image. Replaced with every image." --latest=false
+          fi
+          gh release upload imager imager.json --clobber --repo "$REPO"

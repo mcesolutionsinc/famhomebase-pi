@@ -10,7 +10,7 @@ If you are starting with a blank memory card, you can skip Docker and the instal
 
 1. Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (version 2 or newer) on your computer.
 2. Tell Imager where to find the FamHomeBase image, once: open **App Options**, then **Content Repository**, choose **Edit**, then **Use custom URL**,
-   and paste `https://famhomebase.mc-esolutions.ca/imager.json`.
+   and paste `https://github.com/mcesolutionsinc/famhomebase-pi/releases/download/imager/imager.json`.
 3. Choose your Raspberry Pi (a Pi 4 or a Pi 5), then **FamHomeBase display**, then your memory card.
 4. On Imager's settings screens, fill in what you want the Pi to have: a **host name**, your **location** (time zone and keyboard), your **Wi-Fi**
    (leave it empty if the Pi will use a network cable), and a **user** with a password.
