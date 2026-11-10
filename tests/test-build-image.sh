@@ -49,7 +49,7 @@ if [ "$(id -u)" -ne 0 ]; then check "without root it refuses, and says to use su
 sh "$SCRIPT" --help > "$WORK/out" 2>&1
 check "--help prints the usage" "grep -q 'build-image.sh --version' $WORK/out"
 
-check "the image gets SSH host keys made at start, and none baked in" "grep -q 'ExecStartPre=/usr/bin/ssh-keygen -A' $SCRIPT && grep -q 'rm -f \"\$ROOT\"/etc/ssh/ssh_host_' $SCRIPT"
-check "the kiosk unit in the image loses its Conflicts line and stops the login prompt itself; the prompt becomes a no-op (not masked)" "grep -q \"Conflicts=getty@tty1.service/d\" $SCRIPT && grep -q 'stop getty@tty1' $SCRIPT && grep -q 'sleep infinity' $SCRIPT && ! grep -q 'systemctl mask getty' $SCRIPT"
-check "SSH makes host keys before the unit's own sshd -t check" "grep -q 'ExecStartPre=/usr/bin/ssh-keygen -A.*ExecStartPre=/usr/sbin/sshd -t' $SCRIPT"
+check "the build runs the file edits (tools/image-patches.sh) and stops if they fail" "grep -q 'image-patches.sh' $SCRIPT && grep -q 'could not edit the image' $SCRIPT"
+check "a failed docker save fails the build (not piped into gzip: sh has no pipefail)" "grep -q 'docker save -o' $SCRIPT && ! grep -q 'docker save.*| gzip' $SCRIPT"
+check "the clean-up never deletes across a mount" "grep -q 'one-file-system' $SCRIPT && grep -q '/proc/mounts' $SCRIPT"
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

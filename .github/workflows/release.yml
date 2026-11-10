@@ -33,6 +33,7 @@ jobs:
           sh tests/test-warm.sh
           sh tests/test-load-image.sh
           sh tests/test-build-image.sh
+          sh tests/test-image-patches.sh
 
       - name: Check the image this release needs exists
         run: |

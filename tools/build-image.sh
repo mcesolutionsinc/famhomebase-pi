@@ -58,7 +58,7 @@ cleanup() {
   set +e
   for m in dev/pts dev proc sys boot/firmware ""; do umount "$ROOT${m:+/$m}" 2>/dev/null || umount -l "$ROOT${m:+/$m}" 2>/dev/null; done
   [ -n "$DEV" ] && losetup -d "$DEV" 2>/dev/null
-  rm -rf "$WORK"
+  if grep -q " $WORK/" /proc/mounts 2>/dev/null; then jlog error "something is still mounted under $WORK: not deleting it (unmount it, then remove it by hand)"; else rm -rf --one-file-system "$WORK"; fi
 }
 trap cleanup EXIT INT TERM
 
@@ -97,37 +97,19 @@ chroot "$ROOT" /bin/sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update
 chroot "$ROOT" /bin/sh /tmp/install.sh --version "$VERSION" --env "$ENVNAME" --kiosk --no-start || die "the display's installer failed in the image"
 rm -f "$ROOT/tmp/install.sh"
 
-[ -z "$HOSTNAME_WANT" ] || { echo "$HOSTNAME_WANT" > "$ROOT/etc/hostname"; sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME_WANT/" "$ROOT/etc/hosts"; }
-
-# the base system's first-boot question ("rename the user?", userconfig.service, on its own terminal) has no place on a display, and it holds the
-# boot at that point until someone answers (cloud-init's last stage waits for the boot to finish): switched off
-chroot "$ROOT" /bin/sh -c "systemctl mask userconfig.service" || die "could not switch off the first-boot user question"
-
-# the login prompt on the first terminal. The release's kiosk unit says Conflicts=getty@tty1: on a first boot the user step (Pi OS's userconf,
-# run by cloud-init) starts that prompt, which cancelled the kiosk's waiting start (no display until a power cycle). So here: the kiosk
-# unit loses the Conflicts line and stops the prompt itself when it starts (the next release's host-setup.sh writes it that way), and the
-# prompt is a do-nothing service, so that userconf can start it without a login appearing (masking it made userconf fail: no password, no key)
-KUNIT="$ROOT/etc/systemd/system/famhomebase-kiosk.service"
-[ -f "$KUNIT" ] || die "the kiosk unit is not in the image"
-sed -i '/^Conflicts=getty@tty1.service/d' "$KUNIT"
-grep -q 'stop getty@tty1' "$KUNIT" || sed -i '/^ExecStart=\/usr\/bin\/cage/i ExecStartPre=-+/bin/systemctl stop getty@tty1.service' "$KUNIT"
-mkdir -p "$ROOT/etc/systemd/system/getty@tty1.service.d"
-printf '[Service]\nType=simple\nExecStartPre=\nExecStart=\nExecStart=/bin/sleep infinity\nStandardInput=null\nTTYReset=no\nTTYVHangup=no\nTTYVTDisallocate=no\n' > "$ROOT/etc/systemd/system/getty@tty1.service.d/10-noop.conf"
-
-# SSH host keys: the base makes them only when systemd says "first boot", which was not true on the test card ("no hostkeys available").
-# Make sure they exist whenever SSH starts (each device makes its own; none are baked in)
-mkdir -p "$ROOT/etc/systemd/system/ssh.service.d"
-printf '[Service]\nExecStartPre=\nExecStartPre=/usr/bin/ssh-keygen -A\nExecStartPre=/usr/sbin/sshd -t\n' > "$ROOT/etc/systemd/system/ssh.service.d/famhomebase-hostkeys.conf"
-rm -f "$ROOT"/etc/ssh/ssh_host_*
+# the file edits that make a first boot work (hostname, no rename question, the kiosk and the login prompt, SSH host keys): tools/image-patches.sh
+sh "$(dirname "$0")/image-patches.sh" "$ROOT" ${HOSTNAME_WANT:+--hostname "$HOSTNAME_WANT"} || die "could not edit the image's files (see the line above)"
 
 # the display's own image, saved inside (loaded once at first boot by famhomebase-image-load.service)
 jlog info "saving the display image $IMAGE_NAME:$VERSION inside the image"
 docker pull "$IMAGE_NAME:$VERSION" >/dev/null || die "could not pull $IMAGE_NAME:$VERSION (is the release's image published and public?)"
 mkdir -p "$ROOT/var/lib/famhomebase"
-docker save "$IMAGE_NAME:$VERSION" | gzip -1 > "$ROOT/var/lib/famhomebase/image.tar.gz" || die "could not save the display image"
+docker save -o "$WORK/image.tar" "$IMAGE_NAME:$VERSION" || die "could not save the display image"
+gzip -1 -c "$WORK/image.tar" > "$ROOT/var/lib/famhomebase/image.tar.gz" || die "could not compress the display image"
+rm -f "$WORK/image.tar"
 
 # tidy: nothing of the build stays in the image
-chroot "$ROOT" /bin/sh -c "apt-get clean && rm -rf /var/lib/apt/lists/* /var/log/apt/* /tmp/* ; : > /etc/machine-id" || true
+chroot "$ROOT" /bin/sh -c "apt-get clean; rm -rf /var/lib/apt/lists/* /var/log/apt/* /tmp/*; : > /etc/machine-id" || jlog warn "the tidy-up in the image failed: build leftovers may remain in it"
 rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/etc/resolv.conf" "$ROOT/etc/apt/apt.conf.d/99famhomebase-build"
 [ -e "$ROOT/etc/resolv.conf.orig" ] || [ -L "$ROOT/etc/resolv.conf.orig" ] && mv "$ROOT/etc/resolv.conf.orig" "$ROOT/etc/resolv.conf"
 sync

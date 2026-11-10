@@ -14,10 +14,15 @@ FILE="$STATE/image.tar.gz"
 
 [ -f "$FILE" ] || exit 0
 jlog info "loading the display image that came with this system image"
-if "$DOCKER" load -i "$FILE" >/dev/null 2>&1; then
-  jlog info "loaded"
-else
-  jlog warn "could not load $FILE: the display image will be downloaded instead"
-fi
+# the daemon can be a moment from ready on a first boot: three tries, a few seconds apart, before giving up
+SLEEP=${FAMHOMEBASE_LOAD_RETRY_SLEEP:-3}
+loaded=0; try=1
+while [ "$try" -le 3 ]; do
+  if "$DOCKER" load -i "$FILE" >/dev/null 2>&1; then loaded=1; break; fi
+  jlog warn "could not load $FILE (try $try of 3)"
+  [ "$try" -lt 3 ] && sleep "$SLEEP"
+  try=$((try+1))
+done
+if [ "$loaded" -eq 1 ]; then jlog info "loaded"; else jlog warn "could not load $FILE: the display image will be downloaded instead"; fi
 rm -f "$FILE"
 exit 0
