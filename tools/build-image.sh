@@ -15,13 +15,14 @@
 #   --extra-mb N      room to add to the base system's root partition for what is installed (default 3072)
 #   --no-compress     leave the .img as it is (faster to try; about 4 GB)
 #   --hostname NAME   the machine's name (default: the base system's)
+#   --url URL         where the image will be downloaded from, for the Imager list written next to it (default: the Pi repo's release "image-X.Y.Z")
 set -eu
 
 REPO="${FAMHOMEBASE_REPO:-mcesolutionsinc/famhomebase-pi}"
 DL="${GITHUB_DOWNLOAD:-https://github.com}"
 BASE_URL="${FAMHOMEBASE_BASE_URL:-https://downloads.raspberrypi.com/raspios_lite_arm64_latest}"
 IMAGE_NAME="${FAMHOMEBASE_IMAGE:-ghcr.io/mcesolutionsinc/famhomebase-pi}"
-VERSION=""; ENVNAME=prod; OUT=dist; BASE=""; EXTRA=3072; COMPRESS=1; HOSTNAME_WANT=""
+VERSION=""; ENVNAME=prod; OUT=dist; BASE=""; EXTRA=3072; COMPRESS=1; HOSTNAME_WANT=""; IMAGE_URL=""
 
 jlog() { printf '{"ts":"%s","level":"%s","component":"build-image","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2"; }
 die() { jlog error "$*"; exit 1; }
@@ -34,6 +35,7 @@ while [ $# -gt 0 ]; do
     --base-image) [ $# -ge 2 ] && [ -f "$2" ] || die "--base-image needs an existing .img.xz file"; BASE=$2; shift ;;
     --extra-mb) [ $# -ge 2 ] || die "--extra-mb needs a number"; EXTRA=$2; shift ;;
     --no-compress) COMPRESS=0 ;;
+    --url) [ $# -ge 2 ] || die "--url needs an address"; IMAGE_URL=$2; shift ;;
     --hostname) [ $# -ge 2 ] || die "--hostname needs a name"; HOSTNAME_WANT=$2; shift ;;
     -h|--help) sed -n '2,/^set /{/^set /!p}' "$0"; exit 0 ;;
     *) die "unknown option: $1" ;;
@@ -123,10 +125,16 @@ losetup -d "$DEV"; DEV=""
 mkdir -p "$OUT"
 FINAL="$OUT/famhomebase-$VERSION-$ENVNAME-arm64.img"
 mv "$IMG" "$FINAL"
+EXTRACT_SIZE=$(wc -c < "$FINAL" | tr -d ' '); EXTRACT_SHA=$(sha256sum "$FINAL" | cut -d' ' -f1)
 if [ "$COMPRESS" -eq 1 ]; then
   jlog info "compressing (this is the slow part)"
   xz -T0 -6 -f "$FINAL" || die "could not compress the image"
   FINAL="$FINAL.xz"
 fi
 (cd "$OUT" && sha256sum "$(basename "$FINAL")" > "$(basename "$FINAL").sha256")
+# the list that makes Imager show its customisation screen for this image (see tools/make-os-list.sh)
+if [ "$COMPRESS" -eq 1 ]; then
+  sh "$(dirname "$0")/make-os-list.sh" --image "$FINAL" --extract-size "$EXTRACT_SIZE" --extract-sha256 "$EXTRACT_SHA" --version "$VERSION" --env "$ENVNAME" \
+    --url "${IMAGE_URL:-$DL/$REPO/releases/download/image-$VERSION/$(basename "$FINAL")}" --out "${FINAL%.img.xz}.os_list.json" || jlog warn "could not write the Imager list"
+fi
 jlog info "done: $FINAL ($(du -h "$FINAL" | cut -f1))"

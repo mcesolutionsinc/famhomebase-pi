@@ -34,6 +34,7 @@ jobs:
           sh tests/test-load-image.sh
           sh tests/test-build-image.sh
           sh tests/test-image-patches.sh
+          sh tests/test-make-os-list.sh
 
       - name: Check the image this release needs exists
         run: |

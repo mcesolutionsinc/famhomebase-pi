@@ -52,4 +52,5 @@ check "--help prints the usage" "grep -q 'build-image.sh --version' $WORK/out"
 check "the build runs the file edits (tools/image-patches.sh) and stops if they fail" "grep -q 'image-patches.sh' $SCRIPT && grep -q 'could not edit the image' $SCRIPT"
 check "a failed docker save fails the build (not piped into gzip: sh has no pipefail)" "grep -q 'docker save -o' $SCRIPT && ! grep -q 'docker save.*| gzip' $SCRIPT"
 check "the clean-up never deletes across a mount" "grep -q 'one-file-system' $SCRIPT && grep -q '/proc/mounts' $SCRIPT"
+check "the build writes the Imager list next to the image (tools/make-os-list.sh) and accepts --url" "grep -q 'make-os-list.sh' $SCRIPT && grep -q -- '--url)' $SCRIPT"
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]
