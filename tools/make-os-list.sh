@@ -8,7 +8,7 @@ set -u
 jlog() { printf '{"ts":"%s","level":"%s","component":"make-os-list","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2"; }
 die() { jlog error "$*"; exit 1; }
 
-IMAGE=""; SIZE=""; SHA=""; URL=""; VERSION=""; ENVNAME=prod; OUT=""
+IMAGE=""; SIZE=""; SHA=""; URL=""; VERSION=""; ENVNAME=prod; OUT=""; NAME_CHECK=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --image) [ $# -ge 2 ] && [ -f "$2" ] || die "--image needs an existing .img.xz file"; IMAGE=$2; shift ;;
@@ -29,6 +29,7 @@ echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "--version must loo
 case "$ENVNAME" in prod|staging) ;; *) die "--env must be prod or staging" ;; esac
 case "$URL" in https://*|http://*|file:///*) ;; *) die "--url must be an address: https://..., or file:///full/path for a local test (a plain path gives Imager 'No host part in the url')" ;; esac
 [ -n "$OUT" ] || die "--out is required"
+case "$URL$NAME_CHECK" in *\"*|*\\*|*" "*) die "--url must not contain a quote, a backslash or a space" ;; esac
 
 DOWNLOAD_SIZE=$(wc -c < "$IMAGE" | tr -d ' ')
 DOWNLOAD_SHA=$(sha256sum "$IMAGE" | cut -d' ' -f1)
@@ -48,7 +49,7 @@ cat > "$OUT" <<JSON_EOF
       "extract_sha256": "$SHA",
       "image_download_size": $DOWNLOAD_SIZE,
       "image_download_sha256": "$DOWNLOAD_SHA",
-      "release_date": "$(date -u +%Y-%m-%d)",
+      "release_date": "$(date -u -r "$IMAGE" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)",
       "init_format": "cloudinit-rpi",
       "devices": ["pi5-64bit", "pi4-64bit"],
       "capabilities": []

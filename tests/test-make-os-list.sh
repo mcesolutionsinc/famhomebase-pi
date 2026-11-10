@@ -42,4 +42,10 @@ run --url /Users/me/a.img.xz; st=$?
 check "a plain path as the url is refused (Imager rejects it: no host part)" "[ $st != 0 ] && grep -q 'file:///' $WORK/out"
 run --url file:///Users/me/a.img.xz; st=$?
 check "a file:/// address is accepted for a local test" "[ $st = 0 ] && grep -q '\"url\": \"file:///Users/me/a.img.xz\"' $WORK/list.json"
+run --url 'https://x.example.org/a"b.img.xz'; st=$?
+check "an address with a quote (which would break the JSON) is refused" "[ $st != 0 ] && grep -q 'must not contain' $WORK/out"
+run --url 'https://x.example.org/a b.img.xz'; st=$?
+check "an address with a space is refused" "[ $st != 0 ] && grep -q 'must not contain' $WORK/out"
+touch -d '2026-11-01 12:00' "$WORK/img.xz"; run; st=$?
+check "the release date is the image's date, not the day the list was written" "[ $st = 0 ] && grep -q '\"release_date\": \"2026-11-01\"' $WORK/list.json"
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

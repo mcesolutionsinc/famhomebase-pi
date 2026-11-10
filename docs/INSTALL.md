@@ -19,8 +19,8 @@ If you are starting with a blank memory card, you can skip Docker and the instal
 6. Write the card, put it in the Pi, and plug the Pi in. **The first start takes a minute or two longer** than later ones, while it sets itself
    up: leave it alone. Then the screen shows a QR code and a code: carry on at [Pair it](#4-pair-it) below.
 
-From then on the display updates itself like any other install (see [Updating](#7-updating)). To turn SSH on later for a card that has none,
-put an empty file named `ssh` on the card's boot drive (it shows up on any computer) and start the Pi again; you need the user you made in step 4.
+From then on the display updates itself like any other install (see [Updating](#7-updating)). To turn SSH on later, write the card again with
+**Remote access** switched on in step 5 (your Wi-Fi, user and the rest are set the same way again).
 
 Prefer to install by hand on a Pi that already runs Raspberry Pi OS, or on another 64-bit Linux machine? Carry on with section 1.
 

@@ -11,7 +11,7 @@ still doesn't show, write the card again.
 Pi 5 first: the image is not offered for older Pis.
 
 **The ready-made image: I can't log in over SSH**: SSH is off unless you turned it on in Imager's Remote access screen. Write the card again
-with it on, or put an empty file named `ssh` on the card's boot drive and start the Pi again.
+with it on.
 
 **Docker: `dpkg returned an error code (1)`, no `docker` group, or no `docker.service`**: see the note under "Install Docker" in the
 [install guide](INSTALL.md): Debian's `docker-buildx`/`docker-compose` packages clash with Docker's own, and the command-line client alone
