@@ -13,6 +13,7 @@ R="$WORK/root"; U="$R/etc/systemd/system"
 fresh() { # a fake system as the 0.5.8 installer leaves it
   rm -rf "$R"; mkdir -p "$U" "$R/usr/local/lib/famhomebase" "$R/etc/ssh"
   : > "$R/usr/local/lib/famhomebase/load-image.sh"; : > "$U/famhomebase-image-load.service"
+  : > "$R/usr/local/lib/famhomebase/bootconfig.sh"; : > "$U/famhomebase-bootconfig.service"
   printf '[Unit]\nDescription=kiosk\nConflicts=getty@tty1.service\n\n[Service]\nExecStartPre=-+/usr/bin/chvt 1\nExecStart=/usr/bin/cage -- "/usr/local/lib/famhomebase/kiosk.sh"\nRestart=always\n' > "$U/famhomebase-kiosk.service"
   printf '127.0.0.1\tlocalhost\n127.0.1.1\traspberrypi\n' > "$R/etc/hosts"; echo raspberrypi > "$R/etc/hostname"
   echo key > "$R/etc/ssh/ssh_host_ed25519_key"; echo pub > "$R/etc/ssh/ssh_host_ed25519_key.pub"
@@ -37,8 +38,10 @@ check "a kiosk unit the script does not know is refused, with a reason (not sile
 fresh; rm "$U/famhomebase-kiosk.service"; run; st=$?
 check "a missing kiosk unit is refused" "[ $st != 0 ] && grep -q 'kiosk unit is not in the image' $WORK/out"
 fresh; rm "$U/famhomebase-image-load.service"; run; st=$?
-check "a release without the first-boot loader is refused, and says which release to use" "[ $st != 0 ] && grep -q 'use 0.5.8 or later' $WORK/out"
+check "a release without the first-boot loader is refused, and says which release to use" "[ $st != 0 ] && grep -q 'use 0.5.10 or later' $WORK/out"
 
+fresh; rm "$U/famhomebase-bootconfig.service"; run; st=$?
+check "a release without the boot-drive settings step is refused, and says which release to use" "[ $st != 0 ] && grep -q 'boot-drive settings step' $WORK/out && grep -q 'use 0.5.10 or later' $WORK/out"
 fresh; run --hostname kitchen; st=$?
 check "a host name is written to /etc/hostname and replaces the 127.0.1.1 line" "[ $st = 0 ] && [ \"\$(cat $R/etc/hostname)\" = kitchen ] && grep -q '^127.0.1.1.kitchen\$' $R/etc/hosts && ! grep -q raspberrypi $R/etc/hosts"
 fresh; printf '127.0.0.1\tlocalhost\n' > "$R/etc/hosts"; run --hostname kitchen; st=$?

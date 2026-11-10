@@ -44,14 +44,14 @@ for t in sh id sed tail head tr cat cmp mkdir rm mv ln cksum date stat grep cut 
 MINPATH="$WORK/bin:$WORK/min"
 mkdir -p "$WORK/tools"; printf '#!/bin/sh\n' > "$WORK/tools/cage"; printf '#!/bin/sh\n' > "$WORK/tools/chromium"; printf '#!/bin/sh\n' > "$WORK/tools/swayimg"; chmod +x "$WORK/tools/"*
 export PATH="$WORK/bin:$WORK/tools:$PATH" CTL_LOG="$WORK/ctl.log"
-export FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
+export FAMHOMEBASE_BOOT_DIR="$WORK/boot" FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
 export FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_SYSTEMD_DIR="$WORK/system" FAMHOMEBASE_USER_HOME="$WORK/home" FAMHOMEBASE_NM_CONF_DIR="$WORK/nm" FAMHOMEBASE_NET_DIR="$WORK/net" FAMHOMEBASE_CHROMIUM_POLICY_DIRS="$WORK/policy $WORK/policy-old/chromium-browser"
 export FAMHOMEBASE_HOMES="$WORK/home" SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser" APT_GET="$WORK/bin/apt-get" USERADD="$WORK/bin/useradd" USERMOD="$WORK/bin/usermod" CHOWN="$WORK/bin/chown"
 
 fresh() {
   rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin"; : > "$CTL_LOG"
   mkdir -p "$WORK/inst" "$WORK/home" "$WORK/nm" "$WORK/etc"
-  cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/warm.sh"; echo '#!/bin/sh' > "$WORK/inst/load-image.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; printf '#!/bin/sh\necho "splash $*" >> "%s"\n[ -z "${FAIL_SPLASH:-}" ]\n' "$CTL_LOG" > "$WORK/inst/splash.sh"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
+  cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/warm.sh"; echo '#!/bin/sh' > "$WORK/inst/load-image.sh"; echo '#!/bin/sh' > "$WORK/inst/bootconfig.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; printf '#!/bin/sh\necho "splash $*" >> "%s"\n[ -z "${FAIL_SPLASH:-}" ]\n' "$CTL_LOG" > "$WORK/inst/splash.sh"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
   mkdir -p "$WORK/inst/cursors/famhomebase-blank/cursors"; echo cursor > "$WORK/inst/cursors/famhomebase-blank/cursors/left_ptr"
   unset FAIL_SPLASH FAIL_RELOAD ACTIVE DESKTOP_UP DEFAULT_TARGET FAIL_APT FAIL_USERADD
 }
@@ -119,6 +119,7 @@ check "the terminal's text cursor is switched off before the screen is handed to
 check "the warm-up unit reads the browser's files at the lowest priority and is enabled" "grep -Fxq 'ExecStart=/bin/sh \"$INST/warm.sh\"' $UNIT/famhomebase-warm.service && grep -q '^IOSchedulingClass=idle' $UNIT/famhomebase-warm.service && grep -q '^Nice=19' $UNIT/famhomebase-warm.service && grep -q 'enable .*famhomebase-warm.service' \$CTL_LOG"
 check "the theme named default is the blank cursor theme, since cage ignores XCURSOR_THEME for its own pointer" "[ \"\$(readlink $INST/cursors/default)\" = famhomebase-blank ]"
 check "the first-boot image loader: a unit that runs load-image.sh only when the saved image file exists, before the display, and is enabled" "grep -Fxq 'ExecStart=/bin/sh \"$INST/load-image.sh\"' $UNIT/famhomebase-image-load.service && grep -Fxq 'ConditionPathExists=$STATE/image.tar.gz' $UNIT/famhomebase-image-load.service && grep -q '^Before=famhomebase.service' $UNIT/famhomebase-image-load.service && grep -q 'enable famhomebase-image-load.service' \$CTL_LOG"
+check "the boot-drive settings step: a unit that runs bootconfig.sh only when famhomebase.env is on the boot drive, after the drive is mounted, before the display, and is enabled" "grep -Fxq 'ExecStart=/bin/sh \"$INST/bootconfig.sh\"' $UNIT/famhomebase-bootconfig.service && grep -Fxq 'ConditionPathExists=$WORK/boot/famhomebase.env' $UNIT/famhomebase-bootconfig.service && grep -Fxq 'RequiresMountsFor=$WORK/boot' $UNIT/famhomebase-bootconfig.service && grep -q '^Before=famhomebase.service' $UNIT/famhomebase-bootconfig.service && grep -q 'enable famhomebase-bootconfig.service' \$CTL_LOG"
 check "the splash waits for the page: a ready unit runs ready.sh, and plymouth is ordered after it, and the kiosk too" "grep -Fxq 'ExecStart=/bin/sh \"$INST/ready.sh\"' $UNIT/famhomebase-ready.service && grep -q '^After=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^Wants=famhomebase-ready.service' $UNIT/plymouth-quit.service.d/famhomebase.conf && grep -q '^After=.*famhomebase-ready.service' $KU && grep -q 'enable .*famhomebase-ready.service' \$CTL_LOG"
 check "the kiosk gets an invisible pointer: the cursor theme is in its environment, and the theme has a picture under the usual names" "grep -Fxq 'Environment=XCURSOR_PATH=$INST/cursors XCURSOR_THEME=famhomebase-blank XCURSOR_SIZE=24' $KU && [ -e $INST/cursors/famhomebase-blank/cursors/default ] && [ -e $INST/cursors/famhomebase-blank/cursors/text ] && [ \"\$(readlink $INST/cursors/famhomebase-blank/cursors/watch)\" = left_ptr ]"
 fresh; setup

@@ -21,6 +21,7 @@ set -u
 LIB=$(cd "$(dirname "$0")" && pwd)
 ETC_DIR=${FAMHOMEBASE_ETC_DIR:-/etc/famhomebase}
 STATE_DIR=${FAMHOMEBASE_STATE_DIR:-/var/lib/famhomebase}
+BOOT_DIR=${FAMHOMEBASE_BOOT_DIR:-/boot/firmware}
 BIN_DIR=${FAMHOMEBASE_BIN_DIR:-/usr/local/bin}
 ENV_FILE="$ETC_DIR/famhomebase.env"
 SYSTEMCTL=${SYSTEMCTL:-systemctl}
@@ -132,6 +133,25 @@ Before=famhomebase.service
 [Service]
 Type=oneshot
 ExecStart=/bin/sh "$LIB/load-image.sh"
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+fi
+
+# Settings put on the boot drive (a file famhomebase.env, e.g. to point one image at staging): applied before the display starts (bootconfig.sh).
+# Skipped by its condition on every machine that has no such file.
+if [ -f "$LIB/bootconfig.sh" ]; then
+  write_unit "$SYSTEMD_DIR/famhomebase-bootconfig.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase: apply the settings put on the boot drive
+ConditionPathExists=$BOOT_DIR/famhomebase.env
+RequiresMountsFor=$BOOT_DIR
+Before=famhomebase.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh "$LIB/bootconfig.sh"
 
 [Install]
 WantedBy=multi-user.target
@@ -358,6 +378,7 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
   "$SYSTEMCTL" enable docker.service >/dev/null 2>&1 || true
   "$SYSTEMCTL" enable famhomebase.service famhomebase-update.timer >/dev/null 2>&1
   [ -f "$SYSTEMD_DIR/famhomebase-image-load.service" ] && "$SYSTEMCTL" enable famhomebase-image-load.service >/dev/null 2>&1
+  [ -f "$SYSTEMD_DIR/famhomebase-bootconfig.service" ] && "$SYSTEMCTL" enable famhomebase-bootconfig.service >/dev/null 2>&1
   if [ "$kiosk" -eq 1 ]; then
     "$SYSTEMCTL" enable famhomebase-kiosk.service >/dev/null 2>&1
     [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ] && "$SYSTEMCTL" enable famhomebase-splash.path famhomebase-ready.service >/dev/null 2>&1
