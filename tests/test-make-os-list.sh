@@ -38,4 +38,8 @@ check "a missing image file is refused" "[ $st != 0 ] && grep -q 'existing .img.
 run --bogus; st=$?
 check "an unknown option is refused" "[ $st != 0 ] && grep -q 'unknown option' $WORK/out"
 
+run --url /Users/me/a.img.xz; st=$?
+check "a plain path as the url is refused (Imager rejects it: no host part)" "[ $st != 0 ] && grep -q 'file:///' $WORK/out"
+run --url file:///Users/me/a.img.xz; st=$?
+check "a file:/// address is accepted for a local test" "[ $st = 0 ] && grep -q '\"url\": \"file:///Users/me/a.img.xz\"' $WORK/list.json"
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

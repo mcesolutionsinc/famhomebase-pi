@@ -27,7 +27,7 @@ echo "$SIZE" | grep -Eq '^[0-9]+$' || die "--extract-size must be the size in by
 echo "$SHA" | grep -Eq '^[0-9a-f]{64}$' || die "--extract-sha256 must be a 64-character lower-case hex checksum of the uncompressed image"
 echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "--version must look like 0.5.9"
 case "$ENVNAME" in prod|staging) ;; *) die "--env must be prod or staging" ;; esac
-case "$URL" in https://*|http://*|file://*|/*) ;; *) die "--url must be an address (https://...) or a path to the image" ;; esac
+case "$URL" in https://*|http://*|file:///*) ;; *) die "--url must be an address: https://..., or file:///full/path for a local test (a plain path gives Imager 'No host part in the url')" ;; esac
 [ -n "$OUT" ] || die "--out is required"
 
 DOWNLOAD_SIZE=$(wc -c < "$IMAGE" | tr -d ' ')
