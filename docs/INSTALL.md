@@ -3,6 +3,27 @@
 From a fresh Pi to a working display on the wall. You can do all of it over SSH: no keyboard or mouse on the Pi is needed. This covers
 installing and running the display; the website's guide covers building what it shows.
 
+## The easy way: a ready-made system image (Raspberry Pi 4 or 5)
+
+If you are starting with a blank memory card, you can skip Docker and the installer below: write a ready-made image to the card with the free
+**Raspberry Pi Imager**. It is Raspberry Pi OS with FamHomeBase already installed, and it shows the pairing code by itself.
+
+1. Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (version 2 or newer) on your computer.
+2. Tell Imager where to find the FamHomeBase image, once: open **App Options**, then **Content Repository**, choose **Edit**, then **Use custom URL**,
+   and paste `https://famhomebase.mc-esolutions.ca/imager.json`.
+3. Choose your Raspberry Pi (a Pi 4 or a Pi 5), then **FamHomeBase display**, then your memory card.
+4. On Imager's settings screens, fill in what you want the Pi to have: a **host name**, your **location** (time zone and keyboard), your **Wi-Fi**
+   (leave it empty if the Pi will use a network cable), and a **user** with a password.
+5. **Remote access (SSH) is off unless you turn it on.** A wall display does not need it, so leave it off unless you want to log in to the Pi
+   from your computer. If you do, choose the public-key option and paste your public key.
+6. Write the card, put it in the Pi, and plug the Pi in. **The first start takes a minute or two longer** than later ones, while it sets itself
+   up: leave it alone. Then the screen shows a QR code and a code: carry on at [Pair it](#4-pair-it) below.
+
+From then on the display updates itself like any other install (see [Updating](#7-updating)). To turn SSH on later for a card that has none,
+put an empty file named `ssh` on the card's boot drive (it shows up on any computer) and start the Pi again; you need the user you made in step 4.
+
+Prefer to install by hand on a Pi that already runs Raspberry Pi OS, or on another 64-bit Linux machine? Carry on with section 1.
+
 ## 1. What you need
 
 - A Raspberry Pi 3, 4 or 5 (64-bit) running **64-bit** Raspberry Pi OS, **Lite is enough** (no desktop is needed: the kiosk runs under `cage`,

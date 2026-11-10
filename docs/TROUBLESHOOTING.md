@@ -2,6 +2,17 @@
 
 ## Install and start-up
 
+**The ready-made image: the screen stays black or shows a text prompt for a minute or two on the first start**: that is the one-time set-up. Leave
+the Pi plugged in. If there is still no pairing code after five minutes, unplug it, plug it in again, and wait another two minutes. If it
+still doesn't show, write the card again.
+
+**The ready-made image: Imager shows no settings screens for it, or does not list FamHomeBase**: Imager needs the FamHomeBase list address
+(step 2 of [the easy way](INSTALL.md#the-easy-way-a-ready-made-system-image-raspberry-pi-4-or-5)) and version 2 or newer. Choose the Pi 4 or
+Pi 5 first: the image is not offered for older Pis.
+
+**The ready-made image: I can't log in over SSH**: SSH is off unless you turned it on in Imager's Remote access screen. Write the card again
+with it on, or put an empty file named `ssh` on the card's boot drive and start the Pi again.
+
 **Docker: `dpkg returned an error code (1)`, no `docker` group, or no `docker.service`**: see the note under "Install Docker" in the
 [install guide](INSTALL.md): Debian's `docker-buildx`/`docker-compose` packages clash with Docker's own, and the command-line client alone
 doesn't include the engine.

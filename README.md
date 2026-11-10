@@ -10,7 +10,10 @@ installer, the scripts that start and update the display, and the docs. No appli
 
 ## Quick start
 
-On a Raspberry Pi (or any 64-bit Linux machine) that already has Docker:
+**Starting with a blank memory card (Raspberry Pi 4 or 5)?** Write the ready-made image with Raspberry Pi Imager: see
+[the easy way](docs/INSTALL.md#the-easy-way-a-ready-made-system-image-raspberry-pi-4-or-5). Nothing else to install.
+
+**Already running Raspberry Pi OS?** On a Raspberry Pi (or any 64-bit Linux machine) that already has Docker:
 
 ```bash
 curl -fsSL https://github.com/mcesolutionsinc/famhomebase-pi/releases/latest/download/install.sh | sudo sh -s -- --kiosk
