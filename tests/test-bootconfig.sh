@@ -43,4 +43,17 @@ check "its log lines are JSON" "grep -q '^{\"ts\":\".*\"level\":\"info\",\"compo
 reset; printf 'FAMHOMEBASE_ENV=staging\n' > "$SRC"; printf 'FAMHOMEBASE_ENV=prod\n' > "$DST"; run
 check "a settings file that lacks the address line gets it added" "grep -qx 'FAMHOMEBASE_API_URL=https://staging.famhomebase.mc-esolutions.ca' $DST"
 
+reset; printf 'FAMHOMEBASE_ENV=Staging  \nFAMHOMEBASE_API_URL=  https://sp.example.org \n' > "$SRC"; run
+check "trailing spaces and a capital letter (an editor's habits) do not stop it working" "grep -qx 'FAMHOMEBASE_ENV=staging' $DST && grep -qx 'FAMHOMEBASE_API_URL=https://sp.example.org' $DST && [ ! -e $SRC ]"
+reset; printf 'FAMHOMEBASE_API_URL=https://good.example.org\\nAUTO_UPDATE=0\n' > "$SRC"; run
+check "a backslash in a value cannot add lines to the real file (dash echo would have turned it into a newline)" "[ \"\$(grep -c AUTO_UPDATE $DST)\" = 1 ] && grep -qx 'AUTO_UPDATE=1' $DST && [ -f $SRC ] && grep -q 'https://host' $WORK/out"
+reset; printf 'FAMHOMEBASE_ENV=prod\nFAMHOMEBASE_ENV=staging\n' > "$SRC"; run
+check "a key given twice: the last line wins" "grep -qx 'FAMHOMEBASE_ENV=staging' $DST"
+reset; chmod 640 "$DST"; printf 'FAMHOMEBASE_ENV=staging\n' > "$SRC"; run
+check "the real settings file keeps its permissions" "[ \"\$(stat -c %a $DST)\" = 640 ]"
+if [ "$(id -u)" -ne 0 ]; then
+  reset; chmod 444 "$DST"; printf 'FAMHOMEBASE_ENV=staging\n' > "$SRC"; run; st=$?
+  check "a settings file that cannot be written: an error, no false 'applied', the boot-drive file stays, exit 0" "[ $st = 0 ] && [ -f $SRC ] && grep -q 'could not write' $WORK/out && ! grep -q '\"level\":\"info\"' $WORK/out && grep -qx 'FAMHOMEBASE_ENV=prod' $DST && [ ! -e $DST.work ]"
+  chmod 644 "$DST"
+else ok "(running as root: the unwritable-file test is skipped)"; fi
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

@@ -147,10 +147,11 @@ if [ -f "$LIB/bootconfig.sh" ]; then
 Description=FamHomeBase: apply the settings put on the boot drive
 ConditionPathExists=$BOOT_DIR/famhomebase.env
 RequiresMountsFor=$BOOT_DIR
-Before=famhomebase.service
+Before=famhomebase.service famhomebase-update.service
 
 [Service]
 Type=oneshot
+Environment=FAMHOMEBASE_BOOT_DIR=$BOOT_DIR FAMHOMEBASE_ETC_DIR=$ETC_DIR
 ExecStart=/bin/sh "$LIB/bootconfig.sh"
 
 [Install]

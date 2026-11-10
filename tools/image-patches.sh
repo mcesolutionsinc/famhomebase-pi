@@ -24,9 +24,9 @@ LIB="$ROOT/usr/local/lib/famhomebase"
 # the release must carry the first-boot loader (or the saved display image would sit unused in the image) and the boot-drive settings step (or
 # a staging file on the boot drive would do nothing): 0.5.10 or later
 [ -f "$LIB/load-image.sh" ] && [ -f "$UNITS/famhomebase-image-load.service" ] \
-  || die "this release has no first-boot image loader (famhomebase-image-load.service): use 0.5.10 or later"
+  || die "this release has no first-boot image loader (famhomebase-image-load.service): the image build needs a release 0.5.10 or later"
 [ -f "$LIB/bootconfig.sh" ] && [ -f "$UNITS/famhomebase-bootconfig.service" ] \
-  || die "this release has no boot-drive settings step (famhomebase-bootconfig.service): use 0.5.10 or later"
+  || die "this release has no boot-drive settings step (famhomebase-bootconfig.service): the image build needs a release 0.5.10 or later"
 
 # the machine's name: /etc/hosts must know it too, or sudo and others stall on a name they cannot resolve
 if [ -n "$HOSTNAME_WANT" ]; then

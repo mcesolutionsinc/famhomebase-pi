@@ -20,9 +20,9 @@ STAGING_URL=https://staging.famhomebase.mc-esolutions.ca
 [ -f "$SRC" ] || exit 0
 
 # a value as written in the file: a Windows line ending and one pair of quotes around it are not part of it; the last line for a key wins
-getsrc() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$SRC" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
+getsrc() { sed -n "s/^$1=\\(.*\\)\$/\\1/p" "$SRC" 2>/dev/null | tail -n 1 | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^\"\\(.*\\)\"\$/\\1/" -e "s/^'\\(.*\\)'\$/\\1/"; }
 
-ENVNAME=$(getsrc FAMHOMEBASE_ENV)
+ENVNAME=$(getsrc FAMHOMEBASE_ENV | tr 'A-Z' 'a-z')
 API=$(getsrc FAMHOMEBASE_API_URL)
 
 # other settings are not for this file: said once, then ignored (the names only: a value might hold anything)
@@ -33,7 +33,7 @@ case "$ENVNAME" in
   ''|prod|staging) ;;
   *) jlog error "FAMHOMEBASE_ENV in $SRC must be prod or staging: nothing was changed, the file stays"; exit 0 ;;
 esac
-if [ -n "$API" ] && ! echo "$API" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
+if [ -n "$API" ] && ! printf '%s\n' "$API" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
   jlog error "FAMHOMEBASE_API_URL in $SRC must be https://host with no path: nothing was changed, the file stays"; exit 0
 fi
 if [ -z "$ENVNAME" ] && [ -z "$API" ]; then
@@ -46,15 +46,20 @@ if [ -z "$API" ]; then
   case "$ENVNAME" in staging) API=$STAGING_URL ;; prod) API=$PROD_URL ;; esac
 fi
 
-set_env() { # key, value
-  if grep -q "^$1=" "$DST"; then
-    sed "s|^$1=.*|$1=$2|" "$DST" > "$DST.new" && mv "$DST.new" "$DST"
-  else
-    printf '%s=%s\n' "$1" "$2" >> "$DST"
-  fi
+# both changes are made on a copy of the real settings file and written back in place in one step (keeping its mode and owner); if anything
+# fails, nothing is changed and the boot-drive file stays
+WORK="$DST.work"
+put() { # key, value: replace the line, or add it
+  if grep -q "^$1=" "$WORK"; then sed "s|^$1=.*|$1=$2|" "$WORK" > "$WORK.2" && mv "$WORK.2" "$WORK"; else printf '%s=%s\n' "$1" "$2" >> "$WORK"; fi
 }
-[ -z "$ENVNAME" ] || set_env FAMHOMEBASE_ENV "$ENVNAME"
-[ -z "$API" ] || set_env FAMHOMEBASE_API_URL "$API"
+if cp "$DST" "$WORK" 2>/dev/null \
+   && { [ -z "$ENVNAME" ] || put FAMHOMEBASE_ENV "$ENVNAME"; } \
+   && { [ -z "$API" ] || put FAMHOMEBASE_API_URL "$API"; } \
+   && cat "$WORK" > "$DST" 2>/dev/null; then
+  rm -f "$WORK"
+else
+  rm -f "$WORK" "$WORK.2"; jlog error "could not write $DST: nothing was applied, the file stays"; exit 0
+fi
 jlog info "applied ${ENVNAME:+environment $ENVNAME }${API:+cloud $API} from the boot drive"
 
 rm -f "$SRC" || jlog warn "could not delete $SRC: it will be applied again at the next boot (harmless)"

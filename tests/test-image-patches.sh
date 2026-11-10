@@ -38,10 +38,10 @@ check "a kiosk unit the script does not know is refused, with a reason (not sile
 fresh; rm "$U/famhomebase-kiosk.service"; run; st=$?
 check "a missing kiosk unit is refused" "[ $st != 0 ] && grep -q 'kiosk unit is not in the image' $WORK/out"
 fresh; rm "$U/famhomebase-image-load.service"; run; st=$?
-check "a release without the first-boot loader is refused, and says which release to use" "[ $st != 0 ] && grep -q 'use 0.5.10 or later' $WORK/out"
+check "a release without the first-boot loader is refused, and says which release to use" "[ $st != 0 ] && grep -q 'needs a release 0.5.10 or later' $WORK/out"
 
 fresh; rm "$U/famhomebase-bootconfig.service"; run; st=$?
-check "a release without the boot-drive settings step is refused, and says which release to use" "[ $st != 0 ] && grep -q 'boot-drive settings step' $WORK/out && grep -q 'use 0.5.10 or later' $WORK/out"
+check "a release without the boot-drive settings step is refused, and says which release to use" "[ $st != 0 ] && grep -q 'boot-drive settings step' $WORK/out && grep -q 'needs a release 0.5.10 or later' $WORK/out"
 fresh; run --hostname kitchen; st=$?
 check "a host name is written to /etc/hostname and replaces the 127.0.1.1 line" "[ $st = 0 ] && [ \"\$(cat $R/etc/hostname)\" = kitchen ] && grep -q '^127.0.1.1.kitchen\$' $R/etc/hosts && ! grep -q raspberrypi $R/etc/hosts"
 fresh; printf '127.0.0.1\tlocalhost\n' > "$R/etc/hosts"; run --hostname kitchen; st=$?
