@@ -103,6 +103,11 @@ rm -f "$ROOT/tmp/install.sh"
 # boot at that point until someone answers (cloud-init's last stage waits for the boot to finish): switched off
 chroot "$ROOT" /bin/sh -c "systemctl mask userconfig.service" || die "could not switch off the first-boot user question"
 
+# the login prompt on the first terminal: the kiosk owns that screen (its unit says Conflicts=getty@tty1), and on a first boot the prompt won
+# the race and the kiosk was dropped from the boot (no display until a power cycle). No prompt there, nothing to race (SSH and the other terminals stay)
+rm -f "$ROOT/etc/systemd/system/getty.target.wants/getty@tty1.service"
+chroot "$ROOT" /bin/sh -c "systemctl mask getty@tty1.service" || die "could not switch off the login prompt on the first terminal"
+
 # SSH host keys: the base makes them only when systemd says "first boot", which was not true on the test card ("no hostkeys available").
 # Make sure they exist whenever SSH starts (each device makes its own; none are baked in)
 mkdir -p "$ROOT/etc/systemd/system/ssh.service.d"

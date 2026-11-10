@@ -50,4 +50,5 @@ sh "$SCRIPT" --help > "$WORK/out" 2>&1
 check "--help prints the usage" "grep -q 'build-image.sh --version' $WORK/out"
 
 check "the image gets SSH host keys made at start, and none baked in" "grep -q 'ExecStartPre=/usr/bin/ssh-keygen -A' $SCRIPT && grep -q 'rm -f \"\$ROOT\"/etc/ssh/ssh_host_' $SCRIPT"
+check "the image has no login prompt on the kiosk's terminal (it raced the kiosk on first boot)" "grep -q 'systemctl mask getty@tty1.service' $SCRIPT"
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]
