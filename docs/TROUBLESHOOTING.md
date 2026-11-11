@@ -66,6 +66,11 @@ network yet). It asks again within a minute.
 **Did it update?** `famhomebase version` is the release you're on; `famhomebase logs` (or `journalctl -u famhomebase-update --no-pager -n 20`) says what the
 updater last did (JSON lines). It checks every 6 hours (`CHECK_INTERVAL_HOURS`) and waits 10 minutes after boot.
 
+**The screen says "Updating" for a while on the first start**: that is the first-boot update (see [Updating](INSTALL.md#7-updating)), done once on a new
+card before the pairing screen. It gives up after 15 minutes and shows the pairing screen anyway. `cat /var/lib/famhomebase/first-boot-update-done`
+says how it ended (`updated`, `up-to-date`, `offline`, `disabled`, `failed` or `timeout`); `journalctl -u famhomebase-first-update --no-pager` has the
+details. To run it again on a card: `sudo rm /var/lib/famhomebase/first-boot-update-done` and restart.
+
 **A release failed to start and was rolled back**: the log says so, and that version is skipped for a day. Your pairing and layout were never
 touched. Tell us in an issue with the log lines.
 

@@ -21,6 +21,10 @@ set -u
 LIB=$(cd "$(dirname "$0")" && pwd)
 ETC_DIR=${FAMHOMEBASE_ETC_DIR:-/etc/famhomebase}
 STATE_DIR=${FAMHOMEBASE_STATE_DIR:-/var/lib/famhomebase}
+RUN_DIR=${FAMHOMEBASE_RUN_DIR:-/run/famhomebase}
+# the first-boot update (first-update.sh): its marker means it is done and never runs again; its flag exists while it runs
+FIRST_UPDATE_MARKER="$STATE_DIR/first-boot-update-done"
+FIRST_UPDATE_FLAG="$RUN_DIR/first-boot-update"
 BOOT_DIR=${FAMHOMEBASE_BOOT_DIR:-/boot/firmware}
 BIN_DIR=${FAMHOMEBASE_BIN_DIR:-/usr/local/bin}
 ENV_FILE="$ETC_DIR/famhomebase.env"
@@ -162,7 +166,7 @@ fi
 write_unit "$SYSTEMD_DIR/famhomebase-update.service" <<UNIT_EOF
 [Unit]
 Description=FamHomeBase: look for an update and apply it
-After=network-online.target
+After=network-online.target famhomebase-first-update.service
 Wants=network-online.target
 
 [Service]
@@ -339,10 +343,32 @@ WantedBy=multi-user.target
 UNIT_EOF
     # plymouth (the splash) leaves only when the page is being served, so the splash covers the wait instead of a blank screen, and then keeps
     # its last picture on the screen when it leaves (the kiosk starts right after) instead of blanking it
+    # The first-boot update (first-update.sh): ordered after the display starts and before the splash may leave, so the update is done behind
+    # the splash (which says Updating while it installs one). Skipped for good once its marker exists (see below). The script gives the update 15
+    # minutes; 25 is the unit's last resort (then --after-stop writes the word), so a slow connection never holds the screen on every boot.
+    if [ -f "$LIB/first-update.sh" ]; then
+      write_unit "$SYSTEMD_DIR/famhomebase-first-update.service" <<UNIT_EOF
+[Unit]
+Description=FamHomeBase: on the first boot only, install the newest release behind the splash
+ConditionPathExists=!$FIRST_UPDATE_MARKER
+After=network-online.target famhomebase.service famhomebase-image-load.service
+Wants=network-online.target famhomebase.service
+Before=famhomebase-ready.service famhomebase-update.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=25min
+ExecStart=/bin/sh "$LIB/first-update.sh"
+ExecStopPost=/bin/sh "$LIB/first-update.sh" --after-stop
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+    fi
     write_unit "$SYSTEMD_DIR/famhomebase-ready.service" <<UNIT_EOF
 [Unit]
 Description=FamHomeBase: wait until the display's page is being served
-After=famhomebase.service
+After=famhomebase.service famhomebase-first-update.service
 Wants=famhomebase.service
 
 [Service]
@@ -374,6 +400,15 @@ UNIT_EOF
   fi
 fi
 
+# --- the first-boot update is for a card that has just been flashed, never for a machine that is installed ----------------------------------
+# Only an image build (--no-start) leaves the marker out, so only the first boot of a new card runs it (and shows Updating). An install by the
+# installer has just fetched the newest release, and an update on an installed display is by definition not the first boot: both write it.
+# (Not while the first-boot update itself is running: this runs inside it, when the update applies the new files, and the word must stay for the
+# update to write, or for --after-stop to write if it is stopped.)
+if [ "$START" -eq 1 ] && [ ! -e "$FIRST_UPDATE_MARKER" ] && [ ! -e "$FIRST_UPDATE_FLAG" ]; then
+  printf 'installed %s\n' "$(date +%s)" > "$FIRST_UPDATE_MARKER" 2>/dev/null || jlog warn "could not write $FIRST_UPDATE_MARKER"
+fi
+
 # --- enable and start ---------------------------------------------------------------------------------------------------------------
 if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
   "$SYSTEMCTL" enable docker.service >/dev/null 2>&1 || true
@@ -384,6 +419,7 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
     "$SYSTEMCTL" enable famhomebase-kiosk.service >/dev/null 2>&1
     [ -f "$SYSTEMD_DIR/famhomebase-splash.path" ] && "$SYSTEMCTL" enable famhomebase-splash.path famhomebase-ready.service >/dev/null 2>&1
     [ -f "$SYSTEMD_DIR/famhomebase-warm.service" ] && "$SYSTEMCTL" enable famhomebase-warm.service >/dev/null 2>&1
+    [ -f "$SYSTEMD_DIR/famhomebase-first-update.service" ] && "$SYSTEMCTL" enable famhomebase-first-update.service >/dev/null 2>&1
     # no desktop: boot to the text target, so no login manager starts and takes the screen
     [ "$("$SYSTEMCTL" get-default 2>/dev/null)" = graphical.target ] && "$SYSTEMCTL" set-default multi-user.target >/dev/null 2>&1
   fi
@@ -415,7 +451,11 @@ if "$SYSTEMCTL" daemon-reload >/dev/null 2>&1; then
         kiosk_changed=1 # a kiosk that started while it was up never got the screen
       fi
       if [ "$UPDATE" -eq 1 ]; then
-        if [ "$scripts_now" != "$scripts_before" ] || [ "$kiosk_changed" -eq 1 ]; then
+        if [ -e "$FIRST_UPDATE_FLAG" ]; then
+          # the first-boot update is running behind the splash: a restart would start the screen in the middle of it. The kiosk starts by itself
+          # (on its new script) when the splash leaves.
+          jlog info "the first-boot update is running: the kiosk is not restarted, it starts when the splash leaves"
+        elif [ "$scripts_now" != "$scripts_before" ] || [ "$kiosk_changed" -eq 1 ]; then
           "$SYSTEMCTL" restart famhomebase-kiosk.service >/dev/null 2>&1 && jlog info "restarted the kiosk"
         fi
       else

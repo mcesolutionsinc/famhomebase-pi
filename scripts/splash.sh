@@ -92,6 +92,24 @@ for (i = 0; i < 3; i++) {
   dots[i].SetOpacity(0.3);
 }
 
+# The word "Updating" under the dots, there only while the display asks for it: `plymouth display-message --text=updating` shows it and
+# `plymouth hide-message --text=updating` takes it away (scripts/first-update.sh, on the first boot only). It sits below the group, so the logo
+# and the dots do not move when it appears. Its picture is turned for the rotation like the logo's.
+label = Image("updating.png");
+if (quarter) { label_up_w = label.GetHeight(); label_up_h = label.GetWidth(); }
+else { label_up_w = label.GetWidth(); label_up_h = label.GetHeight(); }
+label_w = logo_w * 0.3;
+label_h = label_up_h * label_w / label_up_w;
+if (quarter) { label_img = label.Scale(label_h, label_w); }
+else { label_img = label.Scale(label_w, label_h); }
+label_sprite = Sprite(label_img);
+place(label_sprite, label_img, 0, group_top + group_h + logo_w * 0.05 + label_h / 2 - lh / 2);
+label_sprite.SetOpacity(0);
+fun show_label(text) { if (text == "updating") label_sprite.SetOpacity(1); }
+fun hide_label(text) { label_sprite.SetOpacity(0); }
+Plymouth.SetDisplayMessageFunction(show_label);
+Plymouth.SetHideMessageFunction(hide_label);
+
 # the dots light up in turn: a hump for half a wave, dark for the other half, each dot a fifth of a wave behind the one before.
 # One wave is 60 refreshes (a little over a second).
 frame = 0;
@@ -115,7 +133,7 @@ write_theme_file() { # $1 = rotation: the theme's files into $2
   cat > "$2/$THEME.plymouth" <<PLY_EOF
 [Plymouth Theme]
 Name=FamHomeBase
-Description=The FamHomeBase logo and three moving dots, turned for how the screen is mounted
+Description=The FamHomeBase logo and three moving dots (and the word Updating when asked), turned for how the screen is mounted
 ModuleName=script
 
 [script]
@@ -124,7 +142,8 @@ ScriptFile=$THEME_DIR/$THEME.script
 PLY_EOF
   write_script "$1" > "$2/$THEME.script"
   # the pictures turned for this rotation (see tools/make-splash-assets.cjs), under the names the script uses
-  cp "$LIB/splash/wide-$1.png" "$2/wide.png" && cp "$LIB/splash/tall-$1.png" "$2/tall.png" && cp "$LIB/splash/dot.png" "$2/dot.png"
+  cp "$LIB/splash/wide-$1.png" "$2/wide.png" && cp "$LIB/splash/tall-$1.png" "$2/tall.png" && cp "$LIB/splash/dot.png" "$2/dot.png" \
+    && cp "$LIB/splash/updating-$1.png" "$2/updating.png"
 }
 
 apply() {

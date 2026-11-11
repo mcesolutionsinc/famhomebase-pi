@@ -43,15 +43,15 @@ mkdir -p "$WORK/min"
 for t in sh id sed tail head tr cat cmp mkdir rm mv ln cksum date stat grep cut dirname readlink env tee basename; do ln -sf "$(command -v $t)" "$WORK/min/$t" 2>/dev/null; done
 MINPATH="$WORK/bin:$WORK/min"
 mkdir -p "$WORK/tools"; printf '#!/bin/sh\n' > "$WORK/tools/cage"; printf '#!/bin/sh\n' > "$WORK/tools/chromium"; printf '#!/bin/sh\n' > "$WORK/tools/swayimg"; chmod +x "$WORK/tools/"*
-export PATH="$WORK/bin:$WORK/tools:$PATH" CTL_LOG="$WORK/ctl.log"
+export PATH="$WORK/bin:$WORK/tools:$PATH" CTL_LOG="$WORK/ctl.log" FAMHOMEBASE_RUN_DIR="$WORK/run"
 export FAMHOMEBASE_BOOT_DIR="$WORK/boot" FAMHOMEBASE_ETC_DIR="$WORK/etc" FAMHOMEBASE_STATE_DIR="$WORK/state" FAMHOMEBASE_BIN_DIR="$WORK/usrbin"
 export FAMHOMEBASE_NO_ROOT=1 FAMHOMEBASE_SYSTEMD_DIR="$WORK/system" FAMHOMEBASE_USER_HOME="$WORK/home" FAMHOMEBASE_NM_CONF_DIR="$WORK/nm" FAMHOMEBASE_NET_DIR="$WORK/net" FAMHOMEBASE_CHROMIUM_POLICY_DIRS="$WORK/policy $WORK/policy-old/chromium-browser"
 export FAMHOMEBASE_HOMES="$WORK/home" SYSTEMCTL="$WORK/bin/systemctl" RUNUSER="$WORK/bin/runuser" APT_GET="$WORK/bin/apt-get" USERADD="$WORK/bin/useradd" USERMOD="$WORK/bin/usermod" CHOWN="$WORK/bin/chown"
 
 fresh() {
-  rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin"; : > "$CTL_LOG"
+  rm -rf "${WORK:?}/inst" "${WORK:?}/system" "${WORK:?}/home" "${WORK:?}/nm" "${WORK:?}/net" "${WORK:?}/etc" "${WORK:?}/state" "${WORK:?}/usrbin" "${WORK:?}/run"; : > "$CTL_LOG"
   mkdir -p "$WORK/inst" "$WORK/home" "$WORK/nm" "$WORK/etc"
-  cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/warm.sh"; echo '#!/bin/sh' > "$WORK/inst/load-image.sh"; echo '#!/bin/sh' > "$WORK/inst/bootconfig.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; printf '#!/bin/sh\necho "splash $*" >> "%s"\n[ -z "${FAIL_SPLASH:-}" ]\n' "$CTL_LOG" > "$WORK/inst/splash.sh"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
+  cp "$SCRIPT" "$WORK/inst/"; echo '#!/bin/sh' > "$WORK/inst/kiosk.sh"; echo '#!/bin/sh' > "$WORK/inst/warm.sh"; echo '#!/bin/sh' > "$WORK/inst/load-image.sh"; echo '#!/bin/sh' > "$WORK/inst/first-update.sh"; echo '#!/bin/sh' > "$WORK/inst/bootconfig.sh"; echo '#!/bin/sh' > "$WORK/inst/famhomebase"; printf '#!/bin/sh\necho "splash $*" >> "%s"\n[ -z "${FAIL_SPLASH:-}" ]\n' "$CTL_LOG" > "$WORK/inst/splash.sh"; echo 0.1.0 > "$WORK/inst/VERSION"; : > "$ETC/famhomebase.env"
   mkdir -p "$WORK/inst/cursors/famhomebase-blank/cursors"; echo cursor > "$WORK/inst/cursors/famhomebase-blank/cursors/left_ptr"
   unset FAIL_SPLASH FAIL_RELOAD ACTIVE DESKTOP_UP DEFAULT_TARGET FAIL_APT FAIL_USERADD
 }
@@ -193,5 +193,27 @@ check "with the kiosk too" "diff -r $UNIT $WORK/system.2 > /dev/null"
 fresh; setup --bogus; st=$?
 check "an unknown option is refused" "[ $st = 2 ]"
 check "its log lines are JSON" "grep -q '^{\"ts\":' \$WORK/out || grep -q '^{\"ts\":' \$WORK/err"
+
+# the first-boot update (ticket 58)
+FU="$UNIT/famhomebase-first-update.service"
+fresh; setup --kiosk
+check "the first-boot update has a unit: skipped once its marker exists, after the display and the network and before the splash leaves, 25 minutes at most (the script keeps to 15), a stop hook that writes the word, enabled" "grep -Fxq 'ConditionPathExists=!$STATE/first-boot-update-done' $FU && grep -q '^After=.*network-online.target.*famhomebase.service' $FU && grep -q '^Before=.*famhomebase-ready.service' $FU && grep -q '^TimeoutStartSec=25min' $FU && grep -Fxq 'ExecStart=/bin/sh \"$INST/first-update.sh\"' $FU && grep -Fxq 'ExecStopPost=/bin/sh \"$INST/first-update.sh\" --after-stop' $FU && grep -q 'system: enable famhomebase-first-update.service' \$CTL_LOG"
+check "the splash waits for it (the ready unit is after it), and the update timer's service waits too, so the two never run at once" "grep -q '^After=.*famhomebase-first-update.service' $UNIT/famhomebase-ready.service && grep -q '^After=.*famhomebase-first-update.service' $UNIT/famhomebase-update.service"
+fresh; rm -f "$WORK/inst/first-update.sh"; setup --kiosk
+check "a release without the script makes no such unit and enables none" "[ ! -f $FU ] && ! grep -q 'enable famhomebase-first-update' \$CTL_LOG"
+fresh; setup --kiosk
+check "a normal install writes the marker: the first-boot update is for a new card, so an installed display never shows it" "grep -q '^installed [0-9]' $STATE/first-boot-update-done"
+fresh; setup --kiosk --no-start
+check "an image build leaves the marker out (and still has the unit): the first boot of the new card is the one that updates" "[ ! -e $STATE/first-boot-update-done ] && [ -f $FU ]"
+fresh; mkdir -p "$STATE"; echo 'updated 123' > "$STATE/first-boot-update-done"; setup --kiosk
+check "a marker that is there is not written over" "grep -Fxq 'updated 123' $STATE/first-boot-update-done"
+fresh; setup --kiosk --no-start; setup --kiosk --update
+check "an update of a display whose card was built as an image writes the marker if it is missing (it is not a first boot any more)" "grep -q '^installed [0-9]' $STATE/first-boot-update-done"
+fresh; mkdir -p "$WORK/run"; : > "$WORK/run/first-boot-update"; setup --kiosk --update
+check "while the first-boot update runs, an update's setup does not write the marker (the update writes its own word, or --after-stop does)" "[ ! -e $STATE/first-boot-update-done ]"
+fresh; setup --kiosk; echo '# changed' >> "$INST/kiosk.sh"; mkdir -p "$WORK/run"; : > "$WORK/run/first-boot-update"; : > "$CTL_LOG"; setup --update
+check "while the first-boot update runs, an update that changes the kiosk does not restart it (that would start the screen in the middle of it), and says so" "! grep -q 'restart famhomebase-kiosk' \$CTL_LOG && grep -q 'the kiosk is not restarted' $WORK/out"
+rm -f "$WORK/run/first-boot-update"; echo '# changed again' >> "$INST/kiosk.sh"; : > "$CTL_LOG"; setup --update
+check "and once it is over, the next update restarts the kiosk as before" "grep -q 'system: restart famhomebase-kiosk.service' \$CTL_LOG"
 
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

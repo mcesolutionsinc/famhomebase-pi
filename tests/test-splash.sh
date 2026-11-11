@@ -46,6 +46,8 @@ check "apply with no rotation file: the theme for 0 degrees, its pictures, and a
 check "the theme's pictures are the ones turned for this rotation, under the names the script uses" "cmp -s $T/wide.png $WORK/inst/splash/wide-0.png && cmp -s $T/tall.png $WORK/inst/splash/tall-0.png"
 fresh; setrot 270; splash apply
 check "for 270 degrees: the pictures turned for 270" "cmp -s $T/wide.png $WORK/inst/splash/wide-270.png && cmp -s $T/tall.png $WORK/inst/splash/tall-270.png && ! cmp -s $T/tall.png $WORK/inst/splash/tall-0.png"
+check "the word Updating: its picture is the one turned for the rotation, under the name the script uses (updating.png)" "cmp -s $T/updating.png $WORK/inst/splash/updating-270.png && ! cmp -s $T/updating.png $WORK/inst/splash/updating-0.png"
+check "the word is hidden to begin with, shown by display-message updating and taken away by hide-message, and sits below the dots so the logo does not move" "grep -q 'label_sprite.SetOpacity(0);' $T/famhomebase.script && grep -q 'SetDisplayMessageFunction(show_label)' $T/famhomebase.script && grep -q 'SetHideMessageFunction(hide_label)' $T/famhomebase.script && grep -q 'text == \"updating\"' $T/famhomebase.script && grep -q 'group_top + group_h' $T/famhomebase.script"
 check "the script does not use Plymouth's own image rotation (it crops the picture to its old shape)" "! grep -q 'Rotate' $T/famhomebase.script"
 fresh; splash apply
 check "the theme file names the script module and its folder" "grep -q '^ModuleName=script' $T/famhomebase.plymouth && grep -q '^ImageDir=$T\$' $T/famhomebase.plymouth && grep -q '^ScriptFile=$T/famhomebase.script\$' $T/famhomebase.plymouth"
@@ -73,6 +75,8 @@ fresh; splash apply; echo text > "$WORK/current-theme"; : > "$LOG"; splash apply
 check "if the default theme was changed to another, it is put back (even though the files are unchanged)" "grep -q '^rebuild famhomebase' \$LOG"
 fresh; FAIL_REBUILD=1 splash apply; st=$?
 check "a rebuild that fails is a warning that says what to run, not a failure" "[ $st = 0 ] && grep -q 'plymouth-set-default-theme -R famhomebase' \$WORK/out"
+fresh; rm -f "$WORK/inst/splash/updating-0.png"; splash apply; st=$?
+check "a missing Updating picture is a missing picture too: an error, and nothing is installed" "[ $st != 0 ] && [ ! -d $T ] && ! grep -q rebuild \$LOG"
 fresh; rm -f "$WORK/inst/splash/tall-0.png"; splash apply; st=$?
 check "missing pictures: an error, and nothing is installed or rebuilt" "[ $st != 0 ] && [ ! -d $T ] && ! grep -q rebuild \$LOG && grep -q '\"level\":\"error\"' \$WORK/out"
 

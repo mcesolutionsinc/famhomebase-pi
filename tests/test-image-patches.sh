@@ -14,6 +14,7 @@ fresh() { # a fake system as the 0.5.8 installer leaves it
   rm -rf "$R"; mkdir -p "$U" "$R/usr/local/lib/famhomebase" "$R/etc/ssh"
   : > "$R/usr/local/lib/famhomebase/load-image.sh"; : > "$U/famhomebase-image-load.service"
   : > "$R/usr/local/lib/famhomebase/bootconfig.sh"; : > "$U/famhomebase-bootconfig.service"
+  : > "$R/usr/local/lib/famhomebase/first-update.sh"; : > "$U/famhomebase-first-update.service"
   printf '[Unit]\nDescription=kiosk\nConflicts=getty@tty1.service\n\n[Service]\nExecStartPre=-+/usr/bin/chvt 1\nExecStart=/usr/bin/cage -- "/usr/local/lib/famhomebase/kiosk.sh"\nRestart=always\n' > "$U/famhomebase-kiosk.service"
   printf '127.0.0.1\tlocalhost\n127.0.1.1\traspberrypi\n' > "$R/etc/hosts"; echo raspberrypi > "$R/etc/hostname"
   echo key > "$R/etc/ssh/ssh_host_ed25519_key"; echo pub > "$R/etc/ssh/ssh_host_ed25519_key.pub"
@@ -37,6 +38,10 @@ fresh; printf '[Service]\nExecStart=/usr/bin/something-else\nConflicts=getty@tty
 check "a kiosk unit the script does not know is refused, with a reason (not silently left wrong)" "[ $st != 0 ] && grep -q 'could not change the kiosk unit' $WORK/out"
 fresh; rm "$U/famhomebase-kiosk.service"; run; st=$?
 check "a missing kiosk unit is refused" "[ $st != 0 ] && grep -q 'kiosk unit is not in the image' $WORK/out"
+fresh; run
+check "a release with the first-boot update builds without a warning about it" "! grep -q 'no first-boot update' $WORK/out"
+fresh; rm "$U/famhomebase-first-update.service"; run; st=$?
+check "a release without it still builds, with a warning that says what the card will do instead" "[ $st = 0 ] && grep -q '\"level\":\"warn\".*no first-boot update' $WORK/out"
 fresh; rm "$U/famhomebase-image-load.service"; run; st=$?
 check "a release without the first-boot loader is refused, and says which release to use" "[ $st != 0 ] && grep -q 'needs a release 0.5.10 or later' $WORK/out"
 

@@ -160,6 +160,14 @@ hours the timer runs `update.sh`, which:
 
 Your settings file is never touched. See what it did with `famhomebase logs` (JSON lines). Run it now with `famhomebase update`.
 
+**On the first boot of a card from the ready-made image** the display does not wait for the timer: it looks for a newer release before it shows
+the pairing screen, so a new display is not paired on an old build. While it installs one, the boot splash (the logo and the moving dots) has the
+word **Updating** under it. It uses `update.sh` as it is, and it is done behind the splash, so you only ever see the splash and then the pairing
+screen. If there is no network after about a minute (Wi-Fi not joined yet, or an offline install), or the update fails and is rolled back, the
+pairing screen shows on the version the card was built with and the normal timer does the update later. It happens once: what it did is in
+`/var/lib/famhomebase/first-boot-update-done` (`updated`, `up-to-date`, `offline`, `disabled`, `failed`, or `timeout`, and the time). A display that
+is installed with the installer, or updated by the timer, never shows "Updating": the file is written for it.
+
 ## 8. Try it on a computer, without systemd
 
 ```bash

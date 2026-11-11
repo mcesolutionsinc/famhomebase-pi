@@ -2,6 +2,8 @@
 //   wide-R.png  the logo for a landscape screen (mark left, name right), already turned for a screen mounted turned R degrees (R is 0, 90, 180 or
 //   tall-R.png  270; the logo is turned the other way, so it reads upright on the wall). The tall one is for a portrait screen (mark above, name below).
 //               (Plymouth's own image rotation crops to the picture's old shape, so the turning is done here.)
+//   updating-R.png  the word "Updating" (capitals, spaced), shown under the dots only while a first-boot update runs (scripts/first-update.sh), turned
+//               for a screen mounted turned R degrees in the same way as the logo
 //   dot.png     one of the three loading dots
 //   ../bridge/frame-R.png  a whole 1920x1080 screen (dark, the logo in the middle at the splash's size, turned for R) that the kiosk shows
 //               from the moment its screen service is up until the browser has painted, so the splash is not followed by black.
@@ -30,7 +32,8 @@ body{margin:0;background:transparent}
 #wide{display:inline-flex;align-items:center;gap:${S * 0.3}px;padding:8px}#wide svg{width:${S}px;height:${S}px}#wide .w{font-size:${S * 0.72}px}
 #tall{display:inline-flex;flex-direction:column;align-items:center;gap:${S * 0.22}px;padding:8px}#tall svg{width:${S * 1.5}px;height:${S * 1.5}px}#tall .w{font-size:${S * 0.62}px}
 #dot{display:inline-block;width:${S * 0.2}px;height:${S * 0.2}px;border-radius:50%;background:${GO};margin:8px}
-</style><div id="stage" style="position:absolute;left:600px;top:400px"></div><div id="wide" class="logo">${mark}${word}</div><div id="tall" class="logo">${mark}${word}</div><div id="dot"></div>`;
+#label{display:inline-block;padding:8px;font-family:SoraL;font-size:${S * 0.34}px;line-height:1;letter-spacing:.14em;text-transform:uppercase;color:#9AA8C4;white-space:nowrap}
+</style><div id="stage" style="position:absolute;left:600px;top:400px"></div><div id="wide" class="logo">${mark}${word}</div><div id="tall" class="logo">${mark}${word}</div><div id="dot"></div><div id="label" class="logo">Updating</div>`;
 
 (async () => {
   fs.mkdirSync(outDir, { recursive: true });
@@ -42,20 +45,20 @@ body{margin:0;background:transparent}
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(300);
   const shapes = {};
-  for (const id of ['wide', 'tall']) {
+  for (const id of ['wide', 'tall', 'label']) {
     for (const rot of [0, 90, 180, 270]) {
       // the element, turned clockwise by (360 - rot) degrees about its centre, in the middle of a big empty page
       const box = await page.evaluate(([elementId, turn]) => {
         const el = document.getElementById(elementId);
         const wrap = document.getElementById('stage');
         document.querySelectorAll('.logo').forEach((e) => (e.style.display = 'none'));
-        el.style.display = elementId === 'wide' ? 'inline-flex' : 'inline-flex';
+        el.style.display = elementId === 'label' ? 'inline-block' : 'inline-flex';
         wrap.appendChild(el);
         el.style.transform = `rotate(${turn}deg)`;
         const r = el.getBoundingClientRect();
         return { x: Math.floor(r.x), y: Math.floor(r.y), width: Math.ceil(r.width), height: Math.ceil(r.height) };
       }, [id, (360 - rot) % 360]);
-      await page.screenshot({ path: path.join(outDir, `${id}-${rot}.png`), clip: box, omitBackground: true });
+      await page.screenshot({ path: path.join(outDir, `${id === 'label' ? 'updating' : id}-${rot}.png`), clip: box, omitBackground: true });
       shapes[`${id}-${rot}`] = { width: box.width, height: box.height };
     }
   }

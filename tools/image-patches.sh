@@ -28,6 +28,11 @@ LIB="$ROOT/usr/local/lib/famhomebase"
 [ -f "$LIB/bootconfig.sh" ] && [ -f "$UNITS/famhomebase-bootconfig.service" ] \
   || die "this release has no boot-drive settings step (famhomebase-bootconfig.service): the image build needs a release 0.5.10 or later"
 
+# the first-boot update (ticket 58) is welcome but not required: an image can still be built from an older release, and then the card is paired on the
+# version it was built with until the update timer runs (10 minutes after the first boot)
+{ [ -f "$LIB/first-update.sh" ] && [ -f "$UNITS/famhomebase-first-update.service" ]; } \
+  || jlog warn "this release has no first-boot update (famhomebase-first-update.service): a card written from this image shows the pairing screen on the version it was built with, and updates ten minutes later. Use a release newer than 0.5.12 for the image to update before pairing"
+
 # the machine's name: /etc/hosts must know it too, or sudo and others stall on a name they cannot resolve
 if [ -n "$HOSTNAME_WANT" ]; then
   echo "$HOSTNAME_WANT" > "$ROOT/etc/hostname"
