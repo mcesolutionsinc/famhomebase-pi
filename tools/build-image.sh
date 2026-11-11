@@ -95,7 +95,7 @@ printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' > "$ROOT/etc/apt/
 
 jlog info "installing Docker and the display $VERSION ($ENVNAME) into the image"
 curl -fsSL -o "$ROOT/tmp/install.sh" "$DL/$REPO/releases/download/v$VERSION/install.sh" || die "could not download install.sh of release $VERSION"
-chroot "$ROOT" /bin/sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update -q && apt-get install -y -q --no-install-recommends curl ca-certificates docker.io docker-cli && systemctl enable docker.service" || die "could not install Docker in the image"
+chroot "$ROOT" /bin/sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update -q && apt-get install -y -q --no-install-recommends curl ca-certificates docker.io docker-cli fonts-noto-color-emoji && systemctl enable docker.service" || die "could not install Docker in the image"
 chroot "$ROOT" /bin/sh /tmp/install.sh --version "$VERSION" --env "$ENVNAME" --kiosk --no-start || die "the display's installer failed in the image"
 rm -f "$ROOT/tmp/install.sh"
 

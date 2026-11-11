@@ -53,4 +53,5 @@ check "the build runs the file edits (tools/image-patches.sh) and stops if they 
 check "a failed docker save fails the build (not piped into gzip: sh has no pipefail)" "grep -q 'docker save -o' $SCRIPT && ! grep -q 'docker save.*| gzip' $SCRIPT"
 check "the clean-up never deletes across a mount" "grep -q 'one-file-system' $SCRIPT && grep -q '/proc/mounts' $SCRIPT"
 check "the build writes the Imager list next to the image (tools/make-os-list.sh) and accepts --url" "grep -q 'make-os-list.sh' $SCRIPT && grep -q -- '--url)' $SCRIPT"
+check "the image installs an emoji font (Raspberry Pi OS Lite has none, so an emoji in a calendar entry showed blank)" "grep -q 'apt-get install.*fonts-noto-color-emoji' $SCRIPT"
 echo "$n tests, $fail failed"; [ "$fail" -eq 0 ]

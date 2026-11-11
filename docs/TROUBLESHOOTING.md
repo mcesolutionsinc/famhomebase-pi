@@ -32,6 +32,10 @@ in the settings file and restart `famhomebase` (and put it back afterwards).
 
 ## The Pi's screen
 
+**An emoji in a calendar entry shows as a blank or an empty box** (a display installed before the image carried the font): Raspberry Pi OS Lite has no
+emoji font. On the Pi run `sudo apt install -y fonts-noto-color-emoji && sudo systemctl restart famhomebase-kiosk`. Images built from the release
+after 0.5.11 already have it.
+
 **Nothing appears on the screen after boot**: `systemctl status famhomebase-kiosk` and `journalctl -u famhomebase-kiosk -n 50`. If it isn't
 installed, run the installer with `--kiosk`. A line `Timeout waiting session to become active` means the kiosk's terminal was not the
 one in front (the unit brings terminal 1 forward at start; a desktop left running would hold the screen: `sudo systemctl stop lightdm`).
